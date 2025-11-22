@@ -821,6 +821,26 @@ For "newRoots", each item must have: "snippet", "contextBefore", "contextAfter",
     };
 
 
+    const handleSendMessage = async (message: string) => {
+        if (!chat) return;
+
+        setIsLoading(true);
+        const userMessage: ChatMessage = { role: 'user', text: message };
+        setChatHistory(prev => [...prev, userMessage]);
+
+        try {
+            const response = await chat.sendMessage({ message });
+            const modelMessage: ChatMessage = { role: 'model', text: response.text };
+            setChatHistory(prev => [...prev, modelMessage]);
+        } catch (error) {
+            console.error("Error sending message to AI:", error);
+            const errorMessage: ChatMessage = { role: 'model', text: "Sorry, I encountered an error. Please try again." };
+            setChatHistory(prev => [...prev, errorMessage]);
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
     const handleStandardizeTitles = async () => {
         if (!confirm("This will rename all pages to match their source citation (e.g., 'Morning Prayer' -> 'Bavli Berachot 5a'). Old titles will be saved in the notes. Continue?")) return;
 
@@ -928,14 +948,12 @@ For "newRoots", each item must have: "snippet", "contextBefore", "contextAfter",
                         onSelectTree={(treeId) => {
                             const tree = receptionForest.find(t => t.id === treeId);
                             if (tree) {
-                                const root = tree.nodes.find(n => n.type === 'root');
-                                if (root) handleSelectNode(root);
+                                handleSelectNode(tree.root);
                             }
                             setCurrentView('split-pane');
                         }}
                         onAddPassage={() => setIsAddPassageModalOpen(true)}
                         onOpenMergeModal={() => setIsMergeModalOpen(true)}
-                        onRepairAll={handleRepairAll}
                         onStandardizeTitles={handleStandardizeTitles}
                     />
                 );

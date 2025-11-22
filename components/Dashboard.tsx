@@ -6,7 +6,6 @@ interface DashboardProps {
     onSelectTree: (treeId: string) => void;
     onAddPassage: () => void;
     onOpenMergeModal: () => void;
-    onRepairAll: () => void;
     onStandardizeTitles: () => void;
 }
 
