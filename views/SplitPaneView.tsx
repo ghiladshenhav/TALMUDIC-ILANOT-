@@ -11,17 +11,7 @@ interface SplitPaneViewProps {
     onSaveNode: (node: GraphNode) => void;
     onDeleteNode: (nodeId: string) => void;
     onAddBranch: (parentNode: GraphNode | null) => void;
-    // Edge props are less relevant here but needed for RightSidebar compatibility if we were to show edges, 
-    // though this view is node-centric.
-    allEdges: GraphEdge[];
-    onUpdateEdge: (edge: GraphEdge) => void;
-    onDeleteEdge: (edgeId: string) => void;
     onRegenerateRoot: (node: RootNode) => void;
-    onCleanup: (treeId: string) => void;
-    onRepair: (treeId: string) => void;
-    onRepairAll: () => void;
-    onStandardizeTitles: () => void;
-    onForceRegenerateBranchIds: (treeId: string) => void;
 }
 
 const SplitPaneView: React.FC<SplitPaneViewProps> = ({
@@ -31,23 +21,13 @@ const SplitPaneView: React.FC<SplitPaneViewProps> = ({
     onSaveNode,
     onDeleteNode,
     onAddBranch,
-    allEdges,
-    onUpdateEdge,
-    onDeleteEdge,
-    onRegenerateRoot,
-    onCleanup,
-    onRepair,
-    onRepairAll,
-    onStandardizeTitles,
-    onForceRegenerateBranchIds
+    onRegenerateRoot
 }) => {
     // Identify the active root. 
-    // If a root is selected, use it. 
-    // If a branch is selected, find its root.
-    // Default to the first root in the forest if nothing is selected.
+    // With the new structure, each tree has exactly one root.
 
     const allRoots = useMemo(() =>
-        forest.map(t => t.nodes.find(n => n.type === 'root') as RootNode).filter(Boolean),
+        forest.map(t => t.root),
         [forest]);
 
     // State to track the currently viewed root, independent of selection
@@ -67,9 +47,9 @@ const SplitPaneView: React.FC<SplitPaneViewProps> = ({
             if (selectedNode.type === 'root') {
                 setViewedRootId(selectedNode.id);
             } else if (selectedNode.type === 'branch') {
-                const tree = forest.find(t => t.nodes.some(n => n.id === selectedNode.id));
-                const root = tree?.nodes.find(n => n.type === 'root');
-                if (root) setViewedRootId(root.id);
+                // Find the tree containing this branch
+                const tree = forest.find(t => t.branches.some(b => b.id === selectedNode.id));
+                if (tree) setViewedRootId(tree.root.id);
             }
         }
     }, [selectedNode, forest, allRoots]);
@@ -81,10 +61,11 @@ const SplitPaneView: React.FC<SplitPaneViewProps> = ({
         return allRoots.length > 0 ? allRoots[0] : undefined;
     }, [viewedRootId, allRoots]);
 
+    // Get branches for the active root
     const activeBranches = useMemo(() => {
         if (!activeRoot) return [];
-        const tree = forest.find(t => t.nodes.some(n => n.id === activeRoot.id));
-        return tree ? tree.nodes.filter(n => n.type === 'branch') as BranchNode[] : [];
+        const tree = forest.find(t => t.root.id === activeRoot.id);
+        return tree ? tree.branches : [];
     }, [activeRoot, forest]);
 
     return (
@@ -113,55 +94,6 @@ const SplitPaneView: React.FC<SplitPaneViewProps> = ({
                                 <option key={r.id} value={r.id}>{r.title} ({r.sourceText})</option>
                             ))}
                         </select>
-                        {activeRoot && (
-                            <button
-                                onClick={() => {
-                                    const tree = forest.find(t => t.nodes.some(n => n.id === activeRoot.id));
-                                    if (tree) onCleanup(tree.id);
-                                }}
-                                className="flex items-center gap-2 px-3 py-1 bg-red-100 text-red-700 rounded hover:bg-red-200 transition-colors ml-2"
-                                title="Cleanup Duplicates & Fix Structure"
-                            >
-                                <span className="material-symbols-outlined text-lg">build</span>
-                                <span className="text-xs font-bold uppercase">Fix Data</span>
-                            </button>
-                        )}
-                        <button
-                            onClick={onRepairAll}
-                            className="flex items-center gap-2 px-3 py-1 bg-red-100 text-red-800 rounded hover:bg-red-200 transition-colors ml-2"
-                            title="Scan entire library for ID collisions and fix them"
-                        >
-                            <span className="material-symbols-outlined text-lg">healing</span>
-                            <span className="text-xs font-bold uppercase">Global Repair</span>
-                        </button>
-                        <button
-                            onClick={onStandardizeTitles}
-                            className="flex items-center gap-2 px-3 py-1 bg-blue-100 text-blue-800 rounded hover:bg-blue-200 transition-colors ml-2"
-                            title="Rename all pages to match their source citation"
-                        >
-                            <span className="material-symbols-outlined text-lg">edit_document</span>
-                            <span className="text-xs font-bold uppercase">Standardize Titles</span>
-                        </button>
-                        {activeRoot && (
-                            <button
-                                onClick={() => {
-                                    console.log('[Force Regenerate] Button clicked!');
-                                    const tree = forest.find(t => t.nodes.some(n => n.id === activeRoot.id));
-                                    console.log('[Force Regenerate] Found tree:', tree?.id);
-                                    if (tree) {
-                                        console.log('[Force Regenerate] Calling onForceRegenerateBranchIds with treeId:', tree.id);
-                                        onForceRegenerateBranchIds(tree.id);
-                                    } else {
-                                        console.error('[Force Regenerate] Tree not found for activeRoot:', activeRoot.id);
-                                    }
-                                }}
-                                className="flex items-center gap-2 px-3 py-1 bg-yellow-100 text-yellow-800 rounded hover:bg-yellow-200 transition-colors ml-2"
-                                title="Force regenerate all branch IDs (use if branches are missing/hidden)"
-                            >
-                                <span className="material-symbols-outlined text-lg">refresh</span>
-                                <span className="text-xs font-bold uppercase">Force Regenerate IDs</span>
-                            </button>
-                        )}
                         {activeRoot && (
                             <button
                                 onClick={() => onAddBranch(activeRoot)}

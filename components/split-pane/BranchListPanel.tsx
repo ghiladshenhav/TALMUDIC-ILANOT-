@@ -14,21 +14,8 @@ const BranchListPanel: React.FC<BranchListPanelProps> = ({ branches, onSelectBra
     const [searchQuery, setSearchQuery] = useState('');
 
     const sortedAndFilteredBranches = useMemo(() => {
-
-        // DEDUPLICATION: Ensure unique branch IDs
-        const seenIds = new Set<string>();
-        const uniqueBranches: BranchNode[] = [];
-
-        branches.forEach(branch => {
-            if (seenIds.has(branch.id)) {
-                console.warn(`[BranchListPanel] Duplicate branch ID detected: "${branch.id}". Skipping duplicate.`);
-            } else {
-                seenIds.add(branch.id);
-                uniqueBranches.push(branch);
-            }
-        });
-
-        let filtered = uniqueBranches;
+        // No deduplication needed - composite IDs guarantee uniqueness
+        let filtered = branches;
 
         if (searchQuery) {
             const query = searchQuery.toLowerCase();
