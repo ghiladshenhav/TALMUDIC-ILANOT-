@@ -122,6 +122,38 @@ export const IDHelpers = {
      */
     isRootId(id: string): boolean {
         return id.endsWith('-root');
+    },
+
+    /**
+     * Validate if ID follows new composite format
+     * Returns true if valid, false if legacy format
+     */
+    isValidCompositeId(id: string): boolean {
+        // Root IDs: {treeId}-root
+        if (id.endsWith('-root')) {
+            return id.split('-').length >= 2;
+        }
+        // Branch IDs: {treeId}-branch-{timestamp}-{index}
+        if (id.includes('-branch-')) {
+            const parts = id.split('-branch-');
+            if (parts.length !== 2) return false;
+            const [treeId, suffix] = parts;
+            // Suffix should be: {timestamp}-{index}
+            const suffixParts = suffix.split('-');
+            return suffixParts.length >= 2 && !isNaN(Number(suffixParts[0]));
+        }
+        // Legacy format detected
+        return false;
+    },
+
+    /**
+     * Warn if legacy ID detected
+     */
+    validateAndWarn(id: string, context: string): void {
+        if (!this.isValidCompositeId(id)) {
+            console.warn(`[ID Validation] Legacy ID detected in ${context}:`, id);
+            console.warn('  This may cause ID collisions. Consider migrating data or creating a new tree.');
+        }
     }
 };
 

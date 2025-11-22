@@ -112,6 +112,30 @@ const App: React.FC = () => {
         const unsubscribe = onSnapshot(collection(db, "receptionTrees"), (snapshot) => {
             console.log("Firestore snapshot update received. Docs:", snapshot.docs.length);
             const forestData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as ReceptionTree));
+
+            // Validation: Check for legacy data structure
+            forestData.forEach(tree => {
+                if (!tree.root || !tree.branches) {
+                    console.error(`[Data Validation] Tree "${tree.id}" uses LEGACY structure (nodes/edges). Migration needed!`);
+                    console.error('  Run migration script or delete this tree and recreate it.');
+                } else {
+                    // Validate root ID
+                    IDHelpers.validateAndWarn(tree.root.id, `Tree ${tree.id} root`);
+
+                    // Validate branch IDs
+                    tree.branches.forEach(branch => {
+                        IDHelpers.validateAndWarn(branch.id, `Tree ${tree.id} branch`);
+                    });
+
+                    // Success message for properly formatted trees
+                    const hasValidIds = IDHelpers.isValidCompositeId(tree.root.id) &&
+                        tree.branches.every(b => IDHelpers.isValidCompositeId(b.id));
+                    if (hasValidIds) {
+                        console.log(`[Data Validation] ✅ Tree "${tree.id}" uses new composite ID format`);
+                    }
+                }
+            });
+
             setReceptionForest(forestData);
             setIsDbLoading(false);
         }, (error) => {
@@ -520,6 +544,7 @@ const App: React.FC = () => {
         const treeToUpdate = receptionForest.find(tree => tree.id === parentTreeId);
         if (!treeToUpdate) {
             console.error(`Could not find parent tree with id "${parentTreeId}" to add branch to.`);
+            ```
             return;
         }
 
@@ -528,6 +553,13 @@ const App: React.FC = () => {
 
         // Generate composite ID
         const newNodeId = IDHelpers.generateBranchId(parentTreeId, branchIndex);
+
+        // Sanity check: Ensure ID is in correct format
+        if (!IDHelpers.isValidCompositeId(newNodeId)) {
+            console.error('[ID Generation Error] Generated invalid ID:', newNodeId);
+            throw new Error('Failed to generate valid composite ID');
+        }
+        console.log(`[Branch Creation] ✅ Generated composite ID: ${ newNodeId } `);
 
         // Position relative to root node
         const sourcePos = treeToUpdate.root.position || { x: 0, y: 0 };
@@ -566,7 +598,7 @@ const App: React.FC = () => {
             });
         } catch (error: any) {
             console.error("Failed to save analysis to library:", error);
-            alert(`Failed to save text to library history: ${error.message || "Unknown error"}`);
+            alert(`Failed to save text to library history: ${ error.message || "Unknown error" } `);
         }
     };
 
@@ -586,26 +618,26 @@ const App: React.FC = () => {
         try {
             const ai = getAI(app, { backend: new GoogleAIBackend() });
             const model = getGenerativeModel(ai, { model: "gemini-2.5-flash" });
-            const prompt = `You are a Talmudic research assistant. Analyze the following user-provided text based on their current research graph.
---- USER TEXT ---
-${fullText}
---- END USER TEXT ---
+            const prompt = `You are a Talmudic research assistant.Analyze the following user - provided text based on their current research graph.
+--- USER TEXT-- -
+                ${ fullText }
+            --- END USER TEXT-- -
 
---- USER'S GRAPH SUMMARY ---
-${JSON.stringify(graphSummary, null, 2)}
---- END GRAPH SUMMARY ---
+                --- USER'S GRAPH SUMMARY ---
+${ JSON.stringify(graphSummary, null, 2) }
+            --- END GRAPH SUMMARY-- -
 
-Scan the user's text and identify three types of connections. Return a single JSON object with three arrays: "rootMatches", "thematicFits", and "newRoots".
-For "rootMatches" and "thematicFits", each item must have: 
-- "snippet" (a relevant quote from the user text)
-- "contextBefore" (the two sentences immediately preceding the snippet)
-- "contextAfter" (the two sentences immediately following the snippet)
-- "confidence" (a number 0-100)
-- "source" (the Talmudic passage it matches, e.g., "Bavli Kiddushin 40b")
-- "originalText" (the full quote in the original Hebrew/Aramaic)
-- "author"
-- "workTitle"
-- "justification"
+                Scan the user's text and identify three types of connections. Return a single JSON object with three arrays: "rootMatches", "thematicFits", and "newRoots".
+For "rootMatches" and "thematicFits", each item must have:
+            - "snippet"(a relevant quote from the user text)
+                - "contextBefore"(the two sentences immediately preceding the snippet)
+                - "contextAfter"(the two sentences immediately following the snippet)
+                - "confidence"(a number 0 - 100)
+                - "source"(the Talmudic passage it matches, e.g., "Bavli Kiddushin 40b")
+                - "originalText"(the full quote in the original Hebrew / Aramaic)
+                - "author"
+                - "workTitle"
+                - "justification"
 
 For "newRoots", each item must have: "snippet", "contextBefore", "contextAfter", "confidence", "source", "originalText", "title", and "justification".`;
 
@@ -621,19 +653,19 @@ For "newRoots", each item must have: "snippet", "contextBefore", "contextAfter",
             const findings: AIFinding[] = [];
 
             results.rootMatches?.forEach((item: any, i: number) => findings.push({
-                id: `finding-rm-${crypto.randomUUID()}-${i}`,
+                id: `finding - rm - ${ crypto.randomUUID() } -${ i } `,
                 type: AIFindingType.RootMatch,
                 status: AIFindingStatus.Pending,
                 ...item
             }));
             results.thematicFits?.forEach((item: any, i: number) => findings.push({
-                id: `finding-tf-${crypto.randomUUID()}-${i}`,
+                id: `finding - tf - ${ crypto.randomUUID() } -${ i } `,
                 type: AIFindingType.ThematicFit,
                 status: AIFindingStatus.Pending,
                 ...item
             }));
             results.newRoots?.forEach((item: any, i: number) => findings.push({
-                id: `finding-nr-${crypto.randomUUID()}-${i}`,
+                id: `finding - nr - ${ crypto.randomUUID() } -${ i } `,
                 type: AIFindingType.NewForm,
                 status: AIFindingStatus.Pending,
                 ...item
@@ -652,7 +684,7 @@ For "newRoots", each item must have: "snippet", "contextBefore", "contextAfter",
 
         } catch (error: any) {
             console.error("Full text analysis failed:", error);
-            alert(`The AI analysis failed: ${error.message || "Unknown error"}. Please check the console for details.`);
+            alert(`The AI analysis failed: ${ error.message || "Unknown error" }. Please check the console for details.`);
         } finally {
             setIsLoading(false);
         }
@@ -666,13 +698,13 @@ For "newRoots", each item must have: "snippet", "contextBefore", "contextAfter",
             const ai = new GoogleGenAI({ apiKey: import.meta.env.VITE_GEMINI_API_KEY });
             const response = await generateContentWithRetry(ai.models, {
                 model: 'gemini-2.5-flash',
-                contents: `Extract information for the Talmudic passage: ${rootNode.title} (${rootNode.sourceText})`,
+                contents: `Extract information for the Talmudic passage: ${ rootNode.title } (${ rootNode.sourceText })`,
                 config: {
-                    systemInstruction: `You are a helpful assistant specialized in rabbinic literature. For a given Talmudic source, you must provide:
-                    1. The original Hebrew/Aramaic text ("hebrewText").
-                    2. The Steinsaltz Hebrew translation/explanation ("hebrewTranslation").
-                    3. A standard English translation ("translation").
-                    4. A list of 3-5 keywords ("keywords").
+                    systemInstruction: `You are a helpful assistant specialized in rabbinic literature.For a given Talmudic source, you must provide:
+            1. The original Hebrew / Aramaic text("hebrewText").
+                    2. The Steinsaltz Hebrew translation / explanation("hebrewTranslation").
+                    3. A standard English translation("translation").
+                    4. A list of 3 - 5 keywords("keywords").
                     
                     Return the data in a JSON object.`,
                     responseMimeType: "application/json",
@@ -682,7 +714,7 @@ For "newRoots", each item must have: "snippet", "contextBefore", "contextAfter",
             const jsonString = response.text.trim();
             const aiData = JSON.parse(jsonString);
             const keywords = Array.isArray(aiData.keywords) ? aiData.keywords : [];
-            const userNotesKeywords = `<h3>Suggested Keywords</h3><ul>${keywords.map((kw: string) => `<li>${kw}</li>`).join('')}</ul>`;
+            const userNotesKeywords = `< h3 > Suggested Keywords</h3 > <ul>${keywords.map((kw: string) => `<li>${kw}</li>`).join('')}</ul>`;
 
             const updatedRoot: RootNode = {
                 ...rootNode,
@@ -769,18 +801,18 @@ For "newRoots", each item must have: "snippet", "contextBefore", "contextAfter",
 
             if (!hasEquivalentBranch) {
                 newBranchFromRoot = {
-                    id: `branch-from-root-${sourceRoot.id}`,
+                    id: `branch - from - root - ${ sourceRoot.id } `,
                     type: 'branch',
                     workTitle: sourceRoot.title,
                     author: 'Unknown',
                     publicationDetails: 'Merged from Root',
                     referenceText: sourceRoot.translation || '',
-                    userNotes: `Original Source: ${sourceRoot.sourceText}\n\n${sourceRoot.userNotesKeywords}`,
+                    userNotes: `Original Source: ${ sourceRoot.sourceText } \n\n${ sourceRoot.userNotesKeywords } `,
                     position: { x: targetRoot.position.x + 100, y: targetRoot.position.y + 100 }
                 };
 
                 newEdgeFromRoot = {
-                    id: `edge-merged-root-${crypto.randomUUID()}`,
+                    id: `edge - merged - root - ${ crypto.randomUUID() } `,
                     source: targetRoot.id,
                     target: newBranchFromRoot.id,
                     category: LinkCategory.DirectQuote,
@@ -792,7 +824,7 @@ For "newRoots", each item must have: "snippet", "contextBefore", "contextAfter",
             // We attach them to the Target Root directly now, to keep it simple and flat.
             // (Unless we created a newBranchFromRoot, but even then, attaching to Target Root is safer for now)
             const edgesForMovedBranches: GraphEdge[] = sourceBranches.map(branch => ({
-                id: `edge-merged-${crypto.randomUUID()}`,
+                id: `edge - merged - ${ crypto.randomUUID() } `,
                 source: targetRoot.id, // Connect to the Target Root
                 target: branch.id,
                 category: LinkCategory.DirectQuote,
@@ -859,8 +891,8 @@ For "newRoots", each item must have: "snippet", "contextBefore", "contextAfter",
 
                     // Append old title to user notes if it's not already there
                     let newNotes = rootNode.userNotesKeywords || "";
-                    if (!newNotes.includes(`Old Title: ${oldTitle}`)) {
-                        newNotes = `<h3>Old Title: ${oldTitle}</h3>` + newNotes;
+                    if (!newNotes.includes(`Old Title: ${ oldTitle } `)) {
+                        newNotes = `< h3 > Old Title: ${ oldTitle }</h3 > ` + newNotes;
                     }
 
                     const updatedRoot = {
@@ -877,7 +909,7 @@ For "newRoots", each item must have: "snippet", "contextBefore", "contextAfter",
 
             if (updatedCount > 0) {
                 await batch.commit();
-                alert(`Successfully standardized ${updatedCount} page titles!`);
+                alert(`Successfully standardized ${ updatedCount } page titles!`);
             } else {
                 alert("All page titles are already standardized.");
             }

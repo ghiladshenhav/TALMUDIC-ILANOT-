@@ -14,6 +14,11 @@ const BranchListPanel: React.FC<BranchListPanelProps> = ({ branches, onSelectBra
     const [searchQuery, setSearchQuery] = useState('');
 
     const sortedAndFilteredBranches = useMemo(() => {
+        // Validation: Check for legacy IDs
+        branches.forEach(branch => {
+            IDHelpers.validateAndWarn(branch.id, 'BranchListPanel');
+        });
+
         // No deduplication needed - composite IDs guarantee uniqueness
         let filtered = branches;
 
