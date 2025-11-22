@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { db } from './firebase';
 import { collection, onSnapshot, doc, setDoc, updateDoc, deleteDoc, getDoc, arrayUnion, arrayRemove, writeBatch } from "firebase/firestore";
-import { ReceptionTree, GraphNode, AIFinding, AIFindingStatus, GraphEdge, RootNode, BranchNode, AIFindingType, LinkCategory } from './types';
+import { ReceptionTree, GraphNode, AIFinding, AIFindingStatus, GraphEdge, RootNode, BranchNode, AIFindingType, LinkCategory, IDHelpers } from './types';
 import { generateContentWithRetry } from './utils/ai-helpers';
 import { generateUUID } from './utils/id-helpers';
 import Header from './components/Header';
@@ -53,9 +53,16 @@ const App: React.FC = () => {
 
     const [selectedTractate, setSelectedTractate] = useState<string | null>(null);
 
-    // Combine all nodes and edges from the forest for the graph view
-    const allNodes = useMemo(() => receptionForest.flatMap(tree => tree.nodes), [receptionForest]);
-    const allEdges = useMemo(() => receptionForest.flatMap(tree => tree.edges), [receptionForest]);
+    // Combine all nodes from the forest (roots + branches)
+    const allNodes = useMemo(() => {
+        const nodes: GraphNode[] = [];
+        receptionForest.forEach(tree => {
+            nodes.push(tree.root);
+            nodes.push(...tree.branches);
+        });
+        return nodes;
+    }, [receptionForest]);
+
     const selectedGraphNode = useMemo(() => allNodes.find(n => n.id === selectedGraphNodeId) || null, [selectedGraphNodeId, allNodes]);
 
     useEffect(() => {
@@ -71,15 +78,14 @@ const App: React.FC = () => {
         if (receptionForest.length > 0 && !chat) {
             console.log("Initializing AI Chat...");
             const graphSummary = receptionForest.map(tree => {
-                const root = tree.nodes.find(n => n.type === 'root') as RootNode;
-                if (!root) return null;
+                const root = tree.root;
                 return {
                     sourceText: root.sourceText,
                     title: root.title,
                     keywords: root.userNotesKeywords.replace(/<[^>]*>/g, ' ').split(/\s+/).filter(Boolean).join(', '),
-                    branchCount: tree.nodes.length - 1,
+                    branchCount: tree.branches.length,
                 };
-            }).filter(Boolean);
+            });
 
             const ai = getAI(app, { backend: new GoogleAIBackend() });
             const model = getGenerativeModel(ai, { model: "gemini-2.5-flash" });
@@ -307,18 +313,16 @@ const App: React.FC = () => {
                     }
 
                     const newTreeId = finding.source.toLowerCase().replace(/\s/g, '_').replace(/\./g, '') + '-' + generateUUID().split('-')[0];
-                    const newRootId = `node-root-${generateUUID()}`;
-                    const newBranchId = `branch-${generateUUID()}`;
 
                     const PADDING_X = 100;
                     const PADDING_Y = 100;
                     let maxX = 50;
-                    allNodes.forEach(n => { if (n.position.x > maxX) maxX = n.position.x; });
+                    allNodes.forEach(n => { if (n.position && n.position.x > maxX) maxX = n.position.x; });
                     const newRootX = maxX + PADDING_X;
                     const newRootY = PADDING_Y;
 
                     const newRootNode: RootNode = {
-                        id: newRootId,
+                        id: IDHelpers.generateRootId(newTreeId),
                         type: 'root',
                         position: { x: newRootX, y: newRootY },
                         title: finding.source, // Use the citation as the main title (e.g., "Bavli Berakhot 5a")
@@ -331,7 +335,7 @@ const App: React.FC = () => {
                     };
 
                     const newBranchNode: BranchNode = {
-                        id: newBranchId,
+                        id: IDHelpers.generateBranchId(newTreeId, 0),
                         type: 'branch',
                         position: { x: newRootX + 5 + (Math.random() * 5), y: newRootY + 15 + (Math.random() * 5) },
                         author: finding.author || 'Discovered Author',
@@ -342,18 +346,10 @@ const App: React.FC = () => {
                         style: { borderColor: '#2B3A67', borderWidth: 2 }
                     };
 
-                    const newEdge: GraphEdge = {
-                        id: `edge-${generateUUID()}`,
-                        source: newRootId,
-                        target: newBranchId,
-                        category: LinkCategory.DirectQuote, // Default
-                        label: ''
-                    };
-
                     const newTree: ReceptionTree = {
                         id: newTreeId,
-                        nodes: [newRootNode, newBranchNode],
-                        edges: [newEdge]
+                        root: newRootNode,
+                        branches: [newBranchNode]
                     };
 
                     await setDoc(doc(db, 'receptionTrees', newTreeId), newTree);
@@ -366,7 +362,7 @@ const App: React.FC = () => {
             }
 
             // For RootMatch and ThematicFit, add a new branch
-            const tree = receptionForest.find(t => t.nodes.some(n => (n as RootNode).sourceText === finding.source));
+            const tree = receptionForest.find(t => t.root.sourceText === finding.source);
 
             if (!tree) {
                 console.error("Cannot add branch: parent tree or root node not found for source:", finding.source);
@@ -374,7 +370,7 @@ const App: React.FC = () => {
                 throw new Error("Parent tree not found"); // Throw to indicate failure
             }
 
-            const rootNode = tree.nodes.find(n => n.type === 'root'); // Find root to attach to by default for AI suggestions
+            const rootNode = tree.root; // Get root directly
 
             const newBranchData: Omit<BranchNode, 'id' | 'position' | 'type'> = {
                 author: finding.author || 'Discovered Author',
@@ -387,7 +383,7 @@ const App: React.FC = () => {
                     borderWidth: 2,
                 }
             };
-            await handleCreateBranchNode(newBranchData, tree.id, rootNode?.id, true);
+            await handleCreateBranchNode(newBranchData, tree.id, rootNode.id, true);
             setCurrentView('split-pane');
         } catch (error: any) {
             console.error("Error approving finding:", error);
@@ -527,42 +523,26 @@ const App: React.FC = () => {
             return;
         }
 
-        // If no parentNodeId is provided, default to the root (legacy behavior, but we should try to avoid this)
-        let sourceNodeId = parentNodeId;
-        if (!sourceNodeId) {
-            const rootNode = treeToUpdate.nodes.find(node => node.type === 'root');
-            if (rootNode) sourceNodeId = rootNode.id;
-        }
+        // Get current branch count to generate index for ID
+        const branchIndex = treeToUpdate.branches.length;
 
-        if (!sourceNodeId) {
-            console.error(`Could not find a source node in the parent tree with id "${parentTreeId}".`);
-            return;
-        }
+        // Generate composite ID
+        const newNodeId = IDHelpers.generateBranchId(parentTreeId, branchIndex);
 
-        const sourceNode = treeToUpdate.nodes.find(n => n.id === sourceNodeId);
-        const sourcePos = sourceNode?.position || { x: 0, y: 0 };
+        // Position relative to root node
+        const sourcePos = treeToUpdate.root.position || { x: 0, y: 0 };
 
-        const newNodeId = `branch-${generateUUID()}`;
         const newBranchNode: BranchNode = {
             ...branchData,
             id: newNodeId,
             type: 'branch',
-            // Position relative to source node
             position: { x: sourcePos.x + 50 + (Math.random() * 50), y: sourcePos.y + 200 + (Math.random() * 50) },
         };
 
-        const newEdge: GraphEdge = {
-            id: `edge-${generateUUID()}`,
-            source: sourceNodeId,
-            target: newBranchNode.id,
-            category: LinkCategory.DirectQuote,
-            label: LinkCategory.DirectQuote,
-        };
-
+        // Update Firestore: add to branches array
         const treeDocRef = doc(db, "receptionTrees", parentTreeId);
         await updateDoc(treeDocRef, {
-            nodes: arrayUnion(newBranchNode),
-            edges: arrayUnion(newEdge)
+            branches: arrayUnion(newBranchNode)
         });
 
         if (!isFromAI) {
@@ -595,14 +575,13 @@ const App: React.FC = () => {
         setIsLoading(true);
 
         const graphSummary = receptionForest.map(tree => {
-            const root = tree.nodes.find(n => n.type === 'root') as RootNode;
-            if (!root) return null;
+            const root = tree.root;
             return {
                 sourceText: root.sourceText,
                 title: root.title,
                 keywords: root.userNotesKeywords.replace(/<[^>]*>/g, ' ').split(/\s+/).filter(Boolean).join(', ')
             };
-        }).filter(Boolean);
+        });
 
         try {
             const ai = getAI(app, { backend: new GoogleAIBackend() });
@@ -1504,15 +1483,7 @@ For "newRoots", each item must have: "snippet", "contextBefore", "contextAfter",
                             setAddBranchParent(parentNode);
                             setIsAddPassageModalOpen(true);
                         }}
-                        allEdges={allEdges}
-                        onUpdateEdge={handleUpdateEdge}
-                        onDeleteEdge={handleDeleteEdge}
                         onRegenerateRoot={handleRegenerateRootData}
-                        onCleanup={handleCleanupTree}
-                        onRepair={handleRepairNodeIds}
-                        onRepairAll={handleRepairAll}
-                        onStandardizeTitles={handleStandardizeTitles}
-                        onForceRegenerateBranchIds={handleForceRegenerateBranchIds}
                     />
                 );
 
