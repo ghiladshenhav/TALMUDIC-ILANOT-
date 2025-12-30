@@ -17,6 +17,7 @@
     "dagre": "^0.8.5",
     "dotenv": "^17.2.3",
     "firebase": "^12.6.0",
+    "fuzzball": "^2.2.3",
     "pdfjs-dist": "^5.4.394",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
