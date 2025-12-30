@@ -8,6 +8,7 @@ import {
 } from '../services/interactions-client';
 import { searchGroundTruthByRelevance, formatGroundTruthForChunk, searchHybrid, RagCandidate } from './rag-search';
 import { AnalysisProvider, isDictaAvailable, analyzeTextWithDicta } from './dicta-local';
+import { checkCache, cacheResponse } from './query-cache';
 
 enum SchemaType {
     STRING = "STRING",
@@ -649,6 +650,29 @@ const processAnalyzeChunk = async (textSegment: string, userId?: string, provide
             }
         }
 
+        // ========================================
+        // SEMANTIC CACHE: Check if we have a cached response for similar text
+        // ========================================
+        const cachedResponse = await checkCache(textSegment);
+        if (cachedResponse) {
+            console.log('[Cache] Using cached response - skipping LLM call');
+            try {
+                const parsed = JSON.parse(cachedResponse);
+                return (parsed.foundReferences || []).map((ref: any) => ({
+                    source: ref.source || '',
+                    snippet: ref.snippet || '',
+                    confidence: 95,
+                    status: 'pending',
+                    type: 'implicit',
+                    justification: ref.justification || 'Retrieved from semantic cache',
+                    hebrewText: ref.hebrewText || '',
+                    pageNumber: ref.pageNumber
+                }));
+            } catch (e) {
+                console.warn('[Cache] Failed to parse cached response, proceeding with LLM call');
+            }
+        }
+
         const chunkContent = `${BASE_PROMPT}${groundTruthBlock}${textSegment}`;
 
         // console.log(`Sending chunk of length ${textSegment.length} to AI...`);
@@ -758,6 +782,14 @@ const processAnalyzeChunk = async (textSegment: string, userId?: string, provide
                 throw parseError;
             }
         }
+
+        // ========================================
+        // SEMANTIC CACHE: Store successful response for future use
+        // ========================================
+        if (results?.foundReferences && results.foundReferences.length > 0) {
+            cacheResponse(textSegment, jsonString).catch(console.error);
+        }
+
         return results.foundReferences || [];
 
     } catch (err: any) {
