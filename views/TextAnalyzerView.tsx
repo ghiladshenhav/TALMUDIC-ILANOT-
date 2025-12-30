@@ -57,11 +57,31 @@ const TextAnalyzerView: React.FC<TextAnalyzerViewProps> = ({
     const [processedSuggestionIds, setProcessedSuggestionIds] = useState<Set<string>>(new Set());
     const [currentTextId, setCurrentTextId] = useState<string | undefined>(textId);
     const [inputText, setInputText] = useState<string>(initialText || '');
+    const [hasLoadedFromLibrary, setHasLoadedFromLibrary] = useState<boolean>(
+        !!(initialFindings && initialFindings.length > 0)
+    );
+
+    // Log when component mounts with initial props
+    console.log('[TextAnalyzerView] Mounted with:', {
+        initialFindingsCount: initialFindings?.length || 0,
+        hasLoadedFromLibrary: !!(initialFindings && initialFindings.length > 0),
+        initialTitle,
+        initialAuthor,
+        textId
+    });
 
     // Update state when props change (e.g., user selects a different text from Library)
     useEffect(() => {
+        console.log('[TextAnalyzerView] useEffect triggered with:', {
+            initialFindingsCount: initialFindings?.length || 0,
+            initialTitle,
+            textId
+        });
+
         if (initialFindings && initialFindings.length > 0) {
             setSuggestions(initialFindings);
+            setHasLoadedFromLibrary(true);
+            console.log('[TextAnalyzerView] Setting suggestions from Library:', initialFindings.length);
         }
         if (initialAuthor) setAuthor(initialAuthor);
         if (initialTitle) setWorkTitle(initialTitle);
@@ -338,76 +358,102 @@ IMPORTANT: If the input text contains the English translation of a Talmudic sour
                     <p className="text-white/60 mt-2 max-w-3xl">Upload a document and provide its author and title. The AI will find all Talmudic/Midrashic references, retrieve the original source text, and help you add them to your graph.</p>
                 </div>
 
-                {/* Uploader Column */}
-                <div className="bg-card-dark border border-border-dark rounded-xl p-6">
-                    <h2 className="text-lg font-bold text-white">1. Provide Source</h2>
-                    <p className="text-sm text-subtext-dark mt-1 mb-4">Add the source text and its metadata.</p>
-
-                    <div className="space-y-4">
-                        <label className="block">
-                            <span className="text-sm font-medium text-text-dark">Author</span>
-                            <input type="text" value={author} onChange={e => setAuthor(e.target.value)} placeholder="e.g., Emmanuel Levinas" className="modal-input mt-1" />
-                        </label>
-                        <label className="block">
-                            <span className="text-sm font-medium text-text-dark">Work Title</span>
-                            <input type="text" value={workTitle} onChange={e => setWorkTitle(e.target.value)} placeholder="e.g., Totality and Infinity" className="modal-input mt-1" />
-                        </label>
-                    </div>
-
-                    <label
-                        htmlFor="file-upload"
-                        onDragEnter={handleDragEnter}
-                        onDragLeave={handleDragLeave}
-                        onDragOver={handleDragEvent}
-                        onDrop={handleDrop}
-                        className={`group mt-4 flex flex-col items-center justify-center w-full h-48 border-2 border-dashed rounded-xl cursor-pointer transition-all duration-300 ${isDragging
-                            ? 'border-primary bg-primary/10 scale-[1.02]'
-                            : 'border-border-dark bg-background-dark hover:bg-white/5 hover:border-primary/50'}`}
-                    >
-                        <div className="flex flex-col items-center justify-center pt-5 pb-6 text-center">
-                            <div className={`p-4 rounded-full mb-3 transition-colors ${isDragging ? 'bg-primary/20' : 'bg-surface-dark group-hover:bg-white/10'}`}>
-                                <span className={`material-symbols-outlined text-4xl transition-colors ${isDragging ? 'text-primary' : 'text-subtext-dark group-hover:text-primary'}`}>upload_file</span>
+                {/* Source Section - Shows compact view for Library texts, full upload form for new analysis */}
+                {hasLoadedFromLibrary ? (
+                    <div className="bg-card-dark border border-primary/30 rounded-xl p-6">
+                        <div className="flex items-center justify-between">
+                            <div>
+                                <h2 className="text-lg font-bold text-white flex items-center gap-2">
+                                    <span className="material-symbols-outlined text-primary">library_books</span>
+                                    Loaded from Library
+                                </h2>
+                                <p className="text-sm text-white/60 mt-1">{workTitle} by {author}</p>
+                                <p className="text-xs text-primary mt-2">{suggestions.length} references found</p>
                             </div>
-                            <p className="mb-2 text-lg font-medium text-white">
-                                <span className="font-bold text-primary">Click to upload</span> or drag and drop
-                            </p>
-                            <p className="text-sm text-subtext-dark">TXT, PDF, JPG, PNG, TIFF</p>
-                        </div>
-                        <input id="file-upload" type="file" className="hidden" onChange={(e) => handleFileChange(e.target.files ? e.target.files[0] : null)} accept=".txt,.pdf,.jpg,.jpeg,.png,.tiff" />
-                    </label>
-
-                    {file && (
-                        <div className="mt-4 p-3 bg-white/5 rounded-lg flex items-center justify-between gap-3">
-                            <div className="flex items-center gap-3 overflow-hidden">
-                                <span className="material-symbols-outlined text-primary">description</span>
-                                <p className="text-sm text-white truncate flex-1" title={file.name}>{file.name}</p>
-                            </div>
-                            <button onClick={() => { setFile(null); setSuggestions([]); }} className="text-subtext-dark hover:text-white transition-colors flex-shrink-0">
-                                <span className="material-symbols-outlined !text-xl">close</span>
+                            <button
+                                onClick={() => {
+                                    setHasLoadedFromLibrary(false);
+                                    setSuggestions([]);
+                                    setFile(null);
+                                    if (onResetAnalysis) onResetAnalysis();
+                                }}
+                                className="h-10 px-4 rounded-lg text-sm font-bold text-subtext-dark bg-white/10 hover:bg-white/20 transition-colors"
+                            >
+                                Start New Analysis
                             </button>
                         </div>
-                    )}
+                    </div>
+                ) : (
+                    <div className="bg-card-dark border border-border-dark rounded-xl p-6">
+                        <h2 className="text-lg font-bold text-white">1. Provide Source</h2>
+                        <p className="text-sm text-subtext-dark mt-1 mb-4">Add the source text and its metadata.</p>
 
-                    {error && <p className="text-red-400 text-sm mt-4">{error}</p>}
+                        <div className="space-y-4">
+                            <label className="block">
+                                <span className="text-sm font-medium text-text-dark">Author</span>
+                                <input type="text" value={author} onChange={e => setAuthor(e.target.value)} placeholder="e.g., Emmanuel Levinas" className="modal-input mt-1" />
+                            </label>
+                            <label className="block">
+                                <span className="text-sm font-medium text-text-dark">Work Title</span>
+                                <input type="text" value={workTitle} onChange={e => setWorkTitle(e.target.value)} placeholder="e.g., Totality and Infinity" className="modal-input mt-1" />
+                            </label>
+                        </div>
 
-                    <button
-                        onClick={handleAnalyze}
-                        disabled={!file || !author || !workTitle || isLoading || isProcessing}
-                        className="w-full mt-6 flex items-center justify-center gap-2 h-12 px-6 rounded-lg bg-ai-primary text-white font-bold transition-opacity hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                        {isLoading ? (
-                            <>
-                                <svg className="animate-spin h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path></svg>
-                                <span>Analyzing...</span>
-                            </>
-                        ) : (
-                            <>
-                                <span className="material-symbols-outlined">spark</span>
-                                <span>Find References</span>
-                            </>
+                        <label
+                            htmlFor="file-upload"
+                            onDragEnter={handleDragEnter}
+                            onDragLeave={handleDragLeave}
+                            onDragOver={handleDragEvent}
+                            onDrop={handleDrop}
+                            className={`group mt-4 flex flex-col items-center justify-center w-full h-48 border-2 border-dashed rounded-xl cursor-pointer transition-all duration-300 ${isDragging
+                                ? 'border-primary bg-primary/10 scale-[1.02]'
+                                : 'border-border-dark bg-background-dark hover:bg-white/5 hover:border-primary/50'}`}
+                        >
+                            <div className="flex flex-col items-center justify-center pt-5 pb-6 text-center">
+                                <div className={`p-4 rounded-full mb-3 transition-colors ${isDragging ? 'bg-primary/20' : 'bg-surface-dark group-hover:bg-white/10'}`}>
+                                    <span className={`material-symbols-outlined text-4xl transition-colors ${isDragging ? 'text-primary' : 'text-subtext-dark group-hover:text-primary'}`}>upload_file</span>
+                                </div>
+                                <p className="mb-2 text-lg font-medium text-white">
+                                    <span className="font-bold text-primary">Click to upload</span> or drag and drop
+                                </p>
+                                <p className="text-sm text-subtext-dark">TXT, PDF, JPG, PNG, TIFF</p>
+                            </div>
+                            <input id="file-upload" type="file" className="hidden" onChange={(e) => handleFileChange(e.target.files ? e.target.files[0] : null)} accept=".txt,.pdf,.jpg,.jpeg,.png,.tiff" />
+                        </label>
+
+                        {file && (
+                            <div className="mt-4 p-3 bg-white/5 rounded-lg flex items-center justify-between gap-3">
+                                <div className="flex items-center gap-3 overflow-hidden">
+                                    <span className="material-symbols-outlined text-primary">description</span>
+                                    <p className="text-sm text-white truncate flex-1" title={file.name}>{file.name}</p>
+                                </div>
+                                <button onClick={() => { setFile(null); setSuggestions([]); }} className="text-subtext-dark hover:text-white transition-colors flex-shrink-0">
+                                    <span className="material-symbols-outlined !text-xl">close</span>
+                                </button>
+                            </div>
                         )}
-                    </button>
-                </div>
+
+                        {error && <p className="text-red-400 text-sm mt-4">{error}</p>}
+
+                        <button
+                            onClick={handleAnalyze}
+                            disabled={!file || !author || !workTitle || isLoading || isProcessing}
+                            className="w-full mt-6 flex items-center justify-center gap-2 h-12 px-6 rounded-lg bg-ai-primary text-white font-bold transition-opacity hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                            {isLoading ? (
+                                <>
+                                    <svg className="animate-spin h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path></svg>
+                                    <span>Analyzing...</span>
+                                </>
+                            ) : (
+                                <>
+                                    <span className="material-symbols-outlined">spark</span>
+                                    <span>Find References</span>
+                                </>
+                            )}
+                        </button>
+                    </div>
+                )}
 
                 {/* Results Column */}
                 <div>
