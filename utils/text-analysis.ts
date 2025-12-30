@@ -9,6 +9,7 @@ import {
 import { searchGroundTruthByRelevance, formatGroundTruthForChunk, searchHybrid, RagCandidate } from './rag-search';
 import { AnalysisProvider, isDictaAvailable, analyzeTextWithDicta } from './dicta-local';
 import { checkCache, cacheResponse } from './query-cache';
+import { detectReferences, detectionResultToFindings } from './citation-detector';
 
 enum SchemaType {
     STRING = "STRING",
@@ -574,6 +575,27 @@ export const analyzeFullText = async (
     for (let i = 0; i < chunks.length; i++) {
         const chunk = chunks[i];
         let chunkFindings: any[];
+
+        // ========================================
+        // CITATION PRE-FILTER: Detect references without LLM
+        // ========================================
+        const detectionResult = detectReferences(chunk);
+        const localFindings = detectionResultToFindings(detectionResult, chunk);
+
+        if (localFindings.length > 0) {
+            console.log(`[Citation Detector] Found ${localFindings.length} references locally (FREE!)`);
+            allFindings = [...allFindings, ...localFindings];
+        }
+
+        // Skip LLM if no likely citations detected (saves API cost)
+        if (!detectionResult.hasLikelyCitations) {
+            console.log(`[Pre-filter] Chunk ${i + 1}/${chunks.length}: No likely citations - skipping LLM`);
+            processedChars += chunk.length;
+            if (progressCallback) progressCallback(processedChars, fullText.length);
+            continue;
+        }
+
+        console.log(`[Pre-filter] Chunk ${i + 1}/${chunks.length}: Likely citations detected - calling LLM`);
 
         if (enableHypothesisScanner) {
             // 2-Pass: Scanner (high recall) -> Librarian (high precision)
