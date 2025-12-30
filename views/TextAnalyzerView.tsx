@@ -1,5 +1,5 @@
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { GoogleGenAI, Type } from "@google/genai";
 import { AIFinding, AIFindingType, AIFindingStatus } from '../types';
 import SuggestionCard from '../components/analyzer/SuggestionCard';
@@ -8,7 +8,17 @@ import { generateContentWithRetry } from '../utils/ai-helpers';
 interface TextAnalyzerViewProps {
     onApproveFinding: (finding: AIFinding) => Promise<void>;
     existingRoots: string[];
-    onAnalysisComplete: (text: string, title: string, findings: AIFinding[]) => Promise<void>;
+    onAnalysisComplete: (text: string, title: string, findings: AIFinding[], textId?: string, fullTranscribedText?: string) => Promise<void>;
+    // Props for loading existing texts from Library
+    initialText?: string;
+    initialAuthor?: string;
+    initialTitle?: string;
+    initialFindings?: AIFinding[];
+    textId?: string;
+    onResetAnalysis?: () => void;
+    initialPdfUrl?: string;
+    initialFullText?: string;
+    existingAuthors?: string[];
 }
 
 const fileToGenerativePart = async (file: File) => {
@@ -22,16 +32,42 @@ const fileToGenerativePart = async (file: File) => {
     };
 };
 
-const TextAnalyzerView: React.FC<TextAnalyzerViewProps> = ({ onApproveFinding, existingRoots, onAnalysisComplete }) => {
+const TextAnalyzerView: React.FC<TextAnalyzerViewProps> = ({
+    onApproveFinding,
+    existingRoots,
+    onAnalysisComplete,
+    initialText,
+    initialAuthor,
+    initialTitle,
+    initialFindings,
+    textId,
+    onResetAnalysis,
+    initialPdfUrl,
+    initialFullText,
+    existingAuthors
+}) => {
     const [file, setFile] = useState<File | null>(null);
-    const [author, setAuthor] = useState('');
-    const [workTitle, setWorkTitle] = useState('');
+    const [author, setAuthor] = useState(initialAuthor || '');
+    const [workTitle, setWorkTitle] = useState(initialTitle || '');
     const [isDragging, setIsDragging] = useState(false);
     const [isLoading, setIsLoading] = useState(false);
     const [isProcessing, setIsProcessing] = useState(false);
     const [error, setError] = useState<string | null>(null);
-    const [suggestions, setSuggestions] = useState<AIFinding[]>([]);
+    const [suggestions, setSuggestions] = useState<AIFinding[]>(initialFindings || []);
     const [processedSuggestionIds, setProcessedSuggestionIds] = useState<Set<string>>(new Set());
+    const [currentTextId, setCurrentTextId] = useState<string | undefined>(textId);
+    const [inputText, setInputText] = useState<string>(initialText || '');
+
+    // Update state when props change (e.g., user selects a different text from Library)
+    useEffect(() => {
+        if (initialFindings && initialFindings.length > 0) {
+            setSuggestions(initialFindings);
+        }
+        if (initialAuthor) setAuthor(initialAuthor);
+        if (initialTitle) setWorkTitle(initialTitle);
+        if (textId) setCurrentTextId(textId);
+        if (initialText) setInputText(initialText);
+    }, [initialFindings, initialAuthor, initialTitle, textId, initialText]);
 
     const handleFileChange = (selectedFile: File | null) => {
         if (!selectedFile) return;
