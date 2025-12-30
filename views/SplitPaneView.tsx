@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { ReceptionTree, GraphNode, RootNode, BranchNode, GraphEdge } from '../types';
+import { ChatMessage } from '../App';
 import RootTextPanel from '../components/split-pane/RootTextPanel';
 import BranchListPanel from '../components/split-pane/BranchListPanel';
 import GraphNodeEditor from '../components/graph/GraphNodeEditor';
@@ -12,6 +13,12 @@ interface SplitPaneViewProps {
     onDeleteNode: (nodeId: string) => void;
     onAddBranch: (parentNode: GraphNode | null) => void;
     onRegenerateRoot: (node: RootNode) => void;
+    onMoveBranch: (branchId: string, targetRootId: string) => void;
+    allNodes: GraphNode[];
+    onAskAI: (node: GraphNode) => void;
+    chatHistory: ChatMessage[];
+    onSendMessage: (message: string) => void;
+    isAiLoading: boolean;
 }
 
 const SplitPaneView: React.FC<SplitPaneViewProps> = ({
@@ -21,17 +28,25 @@ const SplitPaneView: React.FC<SplitPaneViewProps> = ({
     onSaveNode,
     onDeleteNode,
     onAddBranch,
-    onRegenerateRoot
+    onRegenerateRoot,
+    onMoveBranch,
+    allNodes,
+    onAskAI,
+    chatHistory,
+    onSendMessage,
+    isAiLoading
 }) => {
     // Identify the active root. 
     // With the new structure, each tree has exactly one root.
 
     const allRoots = useMemo(() =>
-        forest.map(t => t.root),
+        forest.map(t => t.root).filter((r): r is RootNode => !!r),
         [forest]);
 
     // State to track the currently viewed root, independent of selection
     const [viewedRootId, setViewedRootId] = useState<string | null>(null);
+    // State to track the highlighted phrase for branch-to-text highlighting
+    const [highlightedPhrase, setHighlightedPhrase] = useState<string | null>(null);
     const isInitialMount = React.useRef(true);
 
     // Effect to sync selection with view, but NOT reset view on deselect
@@ -48,8 +63,8 @@ const SplitPaneView: React.FC<SplitPaneViewProps> = ({
                 setViewedRootId(selectedNode.id);
             } else if (selectedNode.type === 'branch') {
                 // Find the tree containing this branch
-                const tree = forest.find(t => t.branches.some(b => b.id === selectedNode.id));
-                if (tree) setViewedRootId(tree.root.id);
+                const tree = forest.find(t => t.branches?.some(b => b.id === selectedNode.id));
+                if (tree && tree.root) setViewedRootId(tree.root.id);
             }
         }
     }, [selectedNode, forest, allRoots]);
@@ -64,9 +79,19 @@ const SplitPaneView: React.FC<SplitPaneViewProps> = ({
     // Get branches for the active root
     const activeBranches = useMemo(() => {
         if (!activeRoot) return [];
-        const tree = forest.find(t => t.root.id === activeRoot.id);
-        return tree ? tree.branches : [];
+        const tree = forest.find(t => t.root?.id === activeRoot.id);
+        return tree && tree.branches ? tree.branches : [];
     }, [activeRoot, forest]);
+
+    // Handle branch click - highlight phrase and open editor
+    const handleBranchClick = (branch: BranchNode) => {
+        console.log('[BranchClick] Branch clicked:', branch.workTitle);
+        console.log('[BranchClick] referenceText:', branch.referenceText);
+        // Set the highlighted phrase from the branch's referenceText
+        setHighlightedPhrase(branch.referenceText || null);
+        // Open the editor for the branch
+        onSelectNode(branch);
+    };
 
     return (
         <div className="flex h-full w-full relative overflow-hidden">
@@ -109,8 +134,13 @@ const SplitPaneView: React.FC<SplitPaneViewProps> = ({
                     {activeRoot ? (
                         <RootTextPanel
                             node={activeRoot}
+                            branches={activeBranches}
                             onEdit={() => onSelectNode(activeRoot)}
                             onRegenerate={() => onRegenerateRoot(activeRoot)}
+                            chatHistory={chatHistory}
+                            onSendMessage={onSendMessage}
+                            isAiLoading={isAiLoading}
+                            highlightPhrase={highlightedPhrase}
                         />
                     ) : (
                         <div className="flex-1 flex items-center justify-center text-subtext-dark">
@@ -124,7 +154,7 @@ const SplitPaneView: React.FC<SplitPaneViewProps> = ({
                     {activeRoot ? (
                         <BranchListPanel
                             branches={activeBranches}
-                            onSelectBranch={onSelectNode}
+                            onSelectBranch={handleBranchClick}
                         />
                     ) : null}
                 </div>
@@ -143,6 +173,9 @@ const SplitPaneView: React.FC<SplitPaneViewProps> = ({
                         onDelete={onDeleteNode}
                         onClose={() => onSelectNode(null)}
                         onAddBranch={onAddBranch}
+                        onMoveBranch={onMoveBranch}
+                        allNodes={allNodes}
+                        onAskAI={onAskAI}
                     />
                 )}
             </div>

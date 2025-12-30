@@ -13,25 +13,6 @@
       ]
     },
     {
-      "name": "models/gemini-2.5-pro-preview-03-25",
-      "version": "2.5-preview-03-25",
-      "displayName": "Gemini 2.5 Pro Preview 03-25",
-      "description": "Gemini 2.5 Pro Preview 03-25",
-      "inputTokenLimit": 1048576,
-      "outputTokenLimit": 65536,
-      "supportedGenerationMethods": [
-        "generateContent",
-        "countTokens",
-        "createCachedContent",
-        "batchGenerateContent"
-      ],
-      "temperature": 1,
-      "topP": 0.95,
-      "topK": 64,
-      "maxTemperature": 2,
-      "thinking": true
-    },
-    {
       "name": "models/gemini-2.5-flash",
       "version": "001",
       "displayName": "Gemini 2.5 Flash",

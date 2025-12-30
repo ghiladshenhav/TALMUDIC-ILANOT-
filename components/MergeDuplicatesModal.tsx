@@ -94,7 +94,7 @@ const MergeDuplicatesModal: React.FC<MergeDuplicatesModalProps> = ({ receptionFo
         };
 
         receptionForest.forEach(tree => {
-            const root = tree.nodes.find(n => n.type === 'root') as RootNode;
+            const root = tree.root;
             if (!root) return;
 
             const normalized = normalizeCitation(root.sourceText);
@@ -177,8 +177,8 @@ const MergeDuplicatesModal: React.FC<MergeDuplicatesModalProps> = ({ receptionFo
 
                             <div className="space-y-3">
                                 {group.trees.map(tree => {
-                                    const root = tree.nodes.find(n => n.type === 'root') as RootNode;
-                                    const branchCount = tree.nodes.length - 1;
+                                    const root = tree.root;
+                                    const branchCount = tree.branches?.length || 0;
                                     const isSelected = selectedTargetId === tree.id;
 
                                     return (

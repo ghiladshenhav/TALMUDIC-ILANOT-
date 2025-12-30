@@ -30,8 +30,8 @@ const AddPassageModal: React.FC<AddPassageModalProps> = ({ receptionForest, onCl
                 setCitation((parentNodeForBranch as RootNode).sourceText);
             } else {
                 // Find the root of this branch's tree
-                const tree = receptionForest.find(t => t.nodes.some(n => n.id === parentNodeForBranch.id));
-                const root = tree?.nodes.find(n => n.type === 'root') as RootNode;
+                const tree = receptionForest.find(t => t.branches?.some(b => b.id === parentNodeForBranch.id));
+                const root = tree?.root;
                 if (root) setCitation(root.sourceText);
             }
         }
@@ -67,19 +67,15 @@ const AddPassageModal: React.FC<AddPassageModalProps> = ({ receptionForest, onCl
             const normalizedCitation = normalizeSourceText(citation);
 
             const existingTree = receptionForest.find(tree => {
-                const root = tree.nodes.find(n => n.type === 'root') as RootNode;
+                const root = tree.root;
                 return root && normalizeSourceText(root.sourceText) === normalizedCitation;
             });
 
             if (existingTree) {
                 // Case A: Root Exists -> Add Branch
-                const rootNode = existingTree.nodes.find(n => n.type === 'root');
+                const rootNode = existingTree.root;
                 if (rootNode) {
                     onCreateBranch(branchData, existingTree.id, rootNode.id);
-                    // onCreateBranch handles closing modal in App.tsx? 
-                    // Actually App.tsx handleCreateBranchNode does NOT close modal explicitly? 
-                    // Wait, let's check App.tsx. It usually does.
-                    // If not, we should close it here.
                     onClose();
                 } else {
                     throw new Error("Found tree but no root node.");
@@ -88,22 +84,42 @@ const AddPassageModal: React.FC<AddPassageModalProps> = ({ receptionForest, onCl
                 // Case B: New Root -> Fetch Data & Create Root + Branch
                 const ai = new GoogleGenAI({ apiKey: import.meta.env.VITE_GEMINI_API_KEY });
                 const response = await ai.models.generateContent({
-                    model: 'gemini-2.5-flash',
+                    model: 'gemini-2.0-flash',
                     contents: `Extract information for the Talmudic passage: ${citation}`,
                     config: {
-                        systemInstruction: `You are a helpful assistant specialized in rabbinic literature. For a given Talmudic source, you must provide:
-                        1. The original Hebrew/Aramaic text ("hebrewText").
-                        2. The Steinsaltz Hebrew translation/explanation ("hebrewTranslation").
-                        3. A standard English translation ("translation").
-                        4. A list of 3-5 keywords ("keywords").
-                        
-                        Return the data in a JSON object.`,
+                        systemInstruction: `You are an expert in Talmudic literature with access to comprehensive rabbinic text databases. 
+
+For the given Talmudic passage citation, you MUST provide COMPLETE, FULL texts - not summaries or excerpts:
+
+1. "hebrewText": The COMPLETE original Hebrew/Aramaic text of the ENTIRE Talmudic page or section. Include ALL the text from that page/section, not a summary. This should be the full primary text as it appears in the Talmud.
+
+2. "hebrewTranslation": The COMPLETE Steinsaltz Hebrew translation/explanation of the ENTIRE page. Include the full Steinsaltz commentary, not just excerpts. This should be a comprehensive modern Hebrew explanation of the Aramaic text.
+
+3. "translation": A COMPLETE standard English translation of the ENTIRE passage. Provide the full English text of the page, not a summary or partial translation.
+
+4. "keywords": 3-5 relevant keywords or themes from this passage.
+
+CRITICAL: All texts must be COMPLETE and COMPREHENSIVE. Do not provide summaries, excerpts, or shortened versions. Return all data in a JSON object with these exact field names.`,
                         responseMimeType: "application/json",
                     }
                 });
 
                 const jsonString = response.text.trim();
                 const aiData = JSON.parse(jsonString);
+
+                // Validate AI response
+                if (!aiData.hebrewText || !aiData.translation) {
+                    console.warn('[AI] Incomplete AI response:', aiData);
+                    setError('AI returned incomplete data. Please try again or use the Sync button after creating.');
+                }
+
+                console.log('[AI] Successfully fetched root content:', {
+                    hebrewTextLength: aiData.hebrewText?.length || 0,
+                    hebrewTranslationLength: aiData.hebrewTranslation?.length || 0,
+                    translationLength: aiData.translation?.length || 0,
+                    keywords: aiData.keywords
+                });
+
                 const keywords = Array.isArray(aiData.keywords) ? aiData.keywords : [];
                 const userNotesKeywords = `<h3>Suggested Keywords</h3><ul>${keywords.map((kw: string) => `<li>${kw}</li>`).join('')}</ul>`;
 
@@ -132,7 +148,7 @@ const AddPassageModal: React.FC<AddPassageModalProps> = ({ receptionForest, onCl
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" aria-modal="true" role="dialog">
             <div className="relative z-10 mx-auto w-full max-w-lg">
-                <div className="flex flex-col rounded-xl border border-primary/20 bg-[#162916] text-white shadow-2xl shadow-primary/10">
+                <div className="flex flex-col rounded-xl border border-primary/20 bg-[#1f2335] text-white shadow-2xl shadow-primary/10">
                     <div className="flex flex-col gap-2 p-6 sm:pb-0 sm:pt-8 sm:px-8">
                         <h1 className="text-3xl font-bold tracking-tight text-white">Add New Entry</h1>
                         <p className="text-white/70">Enter the Talmudic Citation and your Topic. We'll handle the rest.</p>
@@ -200,7 +216,7 @@ const AddPassageModal: React.FC<AddPassageModalProps> = ({ receptionForest, onCl
                         {error && <p className="text-red-400 text-sm">{error}</p>}
                     </div>
 
-                    <div className="flex flex-col-reverse sm:flex-row justify-end gap-3 p-6 sm:p-8 bg-[#112211]/50 rounded-b-xl">
+                    <div className="flex flex-col-reverse sm:flex-row justify-end gap-3 p-6 sm:p-8 bg-[#1a1b26]/50 rounded-b-xl">
                         <button onClick={onClose} disabled={isLoading} className="modal-button-secondary">
                             <span className="truncate">Cancel</span>
                         </button>
@@ -222,20 +238,20 @@ const AddPassageModal: React.FC<AddPassageModalProps> = ({ receptionForest, onCl
                     resize: vertical;
                     overflow: hidden;
                     border-radius: 0.5rem;
-                    border: 1px solid rgba(19, 236, 19, 0.3);
-                    background-color: #193319;
+                    border: 1px solid #414868;
+                    background-color: #1f2335;
                     padding: 0.875rem;
                     font-size: 1rem;
                     line-height: 1.5rem;
-                    color: white;
+                    color: #c0caf5;
                 }
                 .modal-input::placeholder {
-                    color: rgba(255, 255, 255, 0.5);
+                    color: #565f89;
                 }
                 .modal-input:focus {
-                    border-color: #13ec13;
+                    border-color: #7aa2f7;
                     outline: 0;
-                    box-shadow: 0 0 0 2px rgba(19, 236, 19, 0.4);
+                    box-shadow: 0 0 0 2px rgba(122, 162, 247, 0.3);
                 }
                 .modal-button-primary {
                     display: flex;
@@ -249,8 +265,8 @@ const AddPassageModal: React.FC<AddPassageModalProps> = ({ receptionForest, onCl
                     height: 2.75rem;
                     padding-left: 1rem;
                     padding-right: 1rem;
-                    background-color: #13ec13;
-                    color: #112211;
+                    background-color: #7aa2f7;
+                    color: #1a1b26;
                     font-size: 0.875rem;
                     font-weight: 700;
                     line-height: 1.25rem;
@@ -260,7 +276,7 @@ const AddPassageModal: React.FC<AddPassageModalProps> = ({ receptionForest, onCl
                     transition-duration: 150ms;
                 }
                 .modal-button-primary:hover {
-                    opacity: 0.9;
+                    background-color: #89b4fa;
                 }
                 .modal-button-primary:disabled {
                     opacity: 0.5;
@@ -278,8 +294,8 @@ const AddPassageModal: React.FC<AddPassageModalProps> = ({ receptionForest, onCl
                     height: 2.75rem;
                     padding-left: 1rem;
                     padding-right: 1rem;
-                    background-color: rgba(19, 236, 19, 0.2);
-                    color: white;
+                    background-color: rgba(122, 162, 247, 0.2);
+                    color: #c0caf5;
                     font-size: 0.875rem;
                     font-weight: 700;
                     line-height: 1.25rem;
@@ -289,7 +305,7 @@ const AddPassageModal: React.FC<AddPassageModalProps> = ({ receptionForest, onCl
                     transition-duration: 150ms;
                 }
                 .modal-button-secondary:hover {
-                    background-color: rgba(19, 236, 19, 0.3);
+                    background-color: rgba(122, 162, 247, 0.3);
                 }
                  .modal-button-secondary:disabled {
                     opacity: 0.5;

@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Ground Truth Verification</title>
+    <script type="module">
+        import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.7.0/firebase-app.js';
+        import { getFirestore, collection, getDocs, query, orderBy, limit } from 'https://www.gstatic.com/firebasejs/10.7.0/firebase-firestore.js';
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyBxxxxxxxxxxx", // Will use the app's config
+            authDomain: "talmudic-reception-trees.firebaseapp.com",
+            projectId: "talmudic-reception-trees",
+            storageBucket: "talmudic-reception-trees.firebasestorage.app",
+            messagingSenderId: "1081944959110",
+            appId: "1:1081944959110:web:a3220fde47189f8e7e4907"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+
+        async function checkCollections() {
+            const output = document.getElementById('output');
+            output.innerHTML = '<p>Loading...</p>';
+            let html = '';
+
+            // Check ground_truth_examples
+            try {
+                html += '<h2>ground_truth_examples Collection</h2>';
+                const gtQuery = query(
+                    collection(db, 'ground_truth_examples'),
+                    orderBy('createdAt', 'desc'),
+                    limit(50)
+                );
+                const gtSnapshot = await getDocs(gtQuery);
+
+                if (gtSnapshot.empty) {
+                    html += '<p style="color: red;">❌ No ground truth examples found!</p>';
+                } else {
+                    html += `<p style="color: green;">✅ Found ${gtSnapshot.size} examples</p>`;
+                    html += '<table border="1" style="border-collapse: collapse; width: 100%;">';
+                    html += '<tr><th>#</th><th>Action</th><th>Phrase</th><th>Source</th><th>Created</th></tr>';
+
+                    let i = 0;
+                    gtSnapshot.forEach(doc => {
+                        const data = doc.data();
+                        const phrase = (data.phrase || data.snippet || '').substring(0, 80);
+                        const date = data.createdAt?.toDate?.()?.toLocaleString() || 'Unknown';
+                        html += `<tr>
+                            <td>${++i}</td>
+                            <td>${data.action}</td>
+                            <td dir="rtl">${phrase}</td>
+                            <td>${data.correctSource || 'N/A'}</td>
+                            <td>${date}</td>
+                        </tr>`;
+                    });
+                    html += '</table>';
+                }
+            } catch (e) {
+                html += `<p style="color: red;">Error: ${e.message}</p>`;
+            }
+
+            // Check ai_training_examples
+            try {
+                html += '<h2>ai_training_examples Collection</h2>';
+                const trainingQuery = query(
+                    collection(db, 'ai_training_examples'),
+                    orderBy('timestamp', 'desc'),
+                    limit(50)
+                );
+                const trainingSnapshot = await getDocs(trainingQuery);
+
+                if (trainingSnapshot.empty) {
+                    html += '<p style="color: red;">❌ No training examples found!</p>';
+                } else {
+                    html += `<p style="color: green;">✅ Found ${trainingSnapshot.size} examples</p>`;
+                    html += '<table border="1" style="border-collapse: collapse; width: 100%;">';
+                    html += '<tr><th>#</th><th>+/-</th><th>Text</th><th>Source</th><th>GT?</th><th>Manual?</th></tr>';
+
+                    let i = 0;
+                    trainingSnapshot.forEach(doc => {
+                        const data = doc.data();
+                        const text = (data.text || '').substring(0, 80);
+                        html += `<tr>
+                            <td>${++i}</td>
+                            <td>${data.isPositive ? '✅' : '❌'}</td>
+                            <td dir="rtl">${text}</td>
+                            <td>${data.source || 'N/A'}</td>
+                            <td>${data.isGroundTruth ? 'Yes' : 'No'}</td>
+                            <td>${data.addedManually ? 'Yes' : 'No'}</td>
+                        </tr>`;
+                    });
+                    html += '</table>';
+                }
+            } catch (e) {
+                html += `<p style="color: red;">Error: ${e.message}</p>`;
+            }
+
+            output.innerHTML = html;
+        }
+
+        window.checkCollections = checkCollections;
+    </script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            padding: 20px;
+            background: #1a1a2e;
+            color: #eee;
+        }
+
+        h1 {
+            color: #10B981;
+        }
+
+        h2 {
+            color: #d4a912;
+            margin-top: 30px;
+        }
+
+        table {
+            margin: 10px 0;
+        }
+
+        th {
+            background: #333;
+            padding: 8px;
+        }
+
+        td {
+            padding: 8px;
+            background: #222;
+        }
+
+        button {
+            padding: 10px 20px;
+            background: #10B981;
+            color: white;
+            border: none;
+            cursor: pointer;
+            font-size: 16px;
+        }
+
+        button:hover {
+            background: #0fa76f;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>🌳 Ground Truth Verification Tool</h1>
+    <p>Click the button to check what's stored in Firestore:</p>
+    <button onclick="checkCollections()">Check Ground Truth Data</button>
+    <div id="output" style="margin-top: 20px;"></div>
+</body>
+
+</html>

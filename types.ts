@@ -31,6 +31,17 @@ export interface RootNode extends BaseGraphNode {
     userNotesKeywords: string; // A rich text field
 }
 
+export enum TextGenre {
+    Halakha = "Halakha",
+    Aggadah = "Aggadah",
+    Philosophy = "Philosophy",
+    Poetry = "Poetry",
+    ModernScholarship = "Modern Scholarship",
+    Literary = "Literary",
+    Historical = "Historical",
+    Other = "Other"
+}
+
 export enum BranchCategory {
     Academic = "Academic",
     Philosophical = "Philosophical",
@@ -48,6 +59,37 @@ export interface BranchNode extends BaseGraphNode {
     referenceText: string;
     userNotes: string;
     category?: BranchCategory;
+    keywords?: string[]; // AI-generated and user-editable thematic tags (e.g., ["משיח", "Messiah", "redemption"])
+    sourceDocumentId?: string; // Links to the UserText.id this branch was discovered from
+}
+
+/**
+ * Author profile for storing bio information
+ */
+export interface AuthorProfile {
+    normalizedName: string;   // Primary key (normalized version of name)
+    displayName: string;      // Display name for UI
+    hebrewName?: string;      // Hebrew name if available
+    birthYear?: string;       // e.g., "1843"
+    deathYear?: string;       // e.g., "1916"
+    location?: string;        // e.g., "Kraków, Galicia"
+    description?: string;     // Brief bio
+    portraitUrl?: string;     // Path to generated portrait image
+    tags?: string[];          // e.g., ["Hasidism", "Philosophy"]
+}
+
+/**
+ * Tractate profile for storing tractate metadata
+ */
+export interface TractateProfile {
+    normalizedName: string;   // Primary key (e.g., "berakhot")
+    displayName: string;      // Display name (e.g., "Berakhot")
+    hebrewName?: string;      // Hebrew name (e.g., "ברכות")
+    order?: string;           // Seder name (e.g., "Zeraim")
+    orderHebrew?: string;     // Hebrew Seder name (e.g., "זרעים")
+    description?: string;     // User-editable description
+    tags?: string[];          // Custom tags
+    imageUrl?: string;        // Custom tree image URL
 }
 
 export type GraphNode = RootNode | BranchNode;
@@ -77,6 +119,8 @@ export interface ReceptionTree {
     id: string;           // e.g., "bavli_berakhot_3a"
     root: RootNode;       // Single root node
     branches: BranchNode[]; // Direct array of branches
+    createdAt?: Date | { seconds: number; nanoseconds: number };  // Firestore Timestamp or Date
+    updatedAt?: Date | { seconds: number; nanoseconds: number };  // Firestore Timestamp or Date
 }
 
 /**
@@ -218,19 +262,116 @@ export interface AIFinding {
     // For new root suggestions (NewForm, Reference)
     title?: string;
     hebrewText?: string;
+    matchingPhrase?: string; // The exact substring from hebrewText that proves the connection
     hebrewTranslation?: string; // Steinsaltz
     translation?: string;
+    sefariaTranslation?: string; // Translation fetched from Sefaria when user corrects source
 
     // Enhanced context
     contextBefore?: string;
     contextAfter?: string;
     originalText?: string; // Hebrew/Aramaic quote
+
+    // Context Expansion
+    expandedContextExplanation?: string;
+    isExpandingContext?: boolean;
+
+    // Implicit Reference Flag
+    isImplicit?: boolean;
+
+    // PDF Page Number
+    pageNumber?: number;
+
+    // Thematic Keywords (AI-generated, user-editable)
+    keywords?: string[]; // e.g., ["משיח", "Messiah", "redemption", "גאולה"]
+
+    // Hallucination Detection (set by post-processing validation)
+    isHallucination?: boolean;
+    hallucinationWarning?: string;
+
+    // Source Correction (when Sefaria search finds the correct source)
+    correctedBySefariaSearch?: boolean;
+    correctionNote?: string;
+    originalSource?: string; // What the AI originally suggested
+
+    // Alternative Candidates (for ambiguous matches)
+    alternativeCandidates?: Array<{
+        source: string;
+        hebrewText: string;
+        reasoning: string;
+        score?: number;
+    }>;
+
+    // Ground Truth / Manual Addition (for training AI)
+    isGroundTruth?: boolean;        // Marks this as training data for AI
+    userExplanation?: string;       // User's reasoning for why this is a valid reference
+    addedManually?: boolean;        // Distinguishes user-added from AI-detected findings
+    sourceDocumentId?: string;      // Links to the library text this came from
+
+    // Needs Verification (AI detected reference but couldn't find exact page)
+    needsVerification?: boolean;    // Flag for user to manually look up the exact source
 }
 
 export interface UserText {
     id: string;
     title: string;
+    author?: string; // Moved from metadata to direct field, kept optional
     text: string;
-    createdAt: any; // Timestamp
+    createdAt?: any; // Firestore Timestamp
+    dateAdded?: number; // Unix timestamp fallback
+    fileUri?: string; // Gemini File API URI
+    pdfUrl?: string; // URL for stored PDF in Firebase Storage
     findings?: AIFinding[];
+    // Metadata fields
+    publicationDate?: string;
+    keywords?: string[];
+    genre?: TextGenre | string; // Text classification category (enum or custom)
+    bibliographicalInfo?: string; // Citation details, publisher, etc.
+    fullTranscribedText?: string;
+    status?: 'active' | 'pending' | 'archived'; // Defaults to 'active' if undefined
+}
+
+/**
+ * Ground Truth Example - User corrections and classifications for AI training
+ */
+export enum GroundTruthAction {
+    APPROVE = 'APPROVE',     // Correct reference, use as positive example
+    REJECT = 'REJECT',       // False positive, add to ignore list
+    CORRECT = 'CORRECT'      // Wrong source, corrected by user
+}
+
+export enum GroundTruthCategory {
+    StructuralNoise = 'structural_noise',      // Aramaic discourse markers
+    LocusClassicus = 'locus_classicus',        // Primary source mapping
+    Subversion = 'subversion',                 // Ironic/subversive usage
+    OCRCorrection = 'ocr_correction'           // Fixed OCR errors
+}
+
+export interface GroundTruthExample {
+    id: string;
+    userId: string;
+    createdAt: any; // Firestore Timestamp
+
+    // Original Finding
+    phrase: string;                 // "אחד רוכב ואחד מנהיג"
+    snippet: string;                // Full quote from document
+    originalSource?: string;        // If correction: "Mishnah Bava Metzia 1:1"
+
+    // Correction/Classification
+    action: GroundTruthAction;
+    correctSource: string;          // "Bavli Bava Metzia 8a" or "N/A" if REJECT
+    correctionReason?: string;      // "Donkey acquisition case, not garment"
+
+    // Metadata
+    confidenceLevel: 'high' | 'medium' | 'low';
+    isGroundTruth: boolean;         // User explicitly marked as GT
+    category?: GroundTruthCategory;
+
+    // Optional enhancements
+    justification?: string;         // User-edited explanation
+    correctedOcrText?: string;      // If OCR was fixed
+
+    // Usage tracking
+    usageCount?: number;            // How many times this example has been used in prompts
+    lastUsed?: any;                 // Firestore Timestamp
 }

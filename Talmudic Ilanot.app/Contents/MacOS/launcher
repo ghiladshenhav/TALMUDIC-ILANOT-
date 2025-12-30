@@ -1,0 +1,44 @@
+#!/bin/bash
+
+# Talmudic Ilanot Launcher
+# Opens Terminal and runs the dev server
+
+# Dynamically find the project directory (go up from .app/Contents/MacOS/launcher)
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+PROJECT_DIR="$( cd "$SCRIPT_DIR/../../.." && pwd )"
+
+# Remove .app suffix if the script is inside the .app bundle
+if [[ "$PROJECT_DIR" == *.app ]]; then
+    PROJECT_DIR="$(dirname "$PROJECT_DIR")"
+fi
+
+# Check if the dev server is already running on port 3000
+if lsof -i :3001 >/dev/null 2>&1; then
+    # Server already running, just open browser
+    open "http://localhost:3001"
+    osascript -e 'display notification "Server already running - opening browser" with title "Talmudic Ilanot"'
+    exit 0
+fi
+
+# Check if package.json exists in the project directory
+if [ ! -f "$PROJECT_DIR/package.json" ]; then
+    osascript -e "display alert \"Error\" message \"Could not find project at: $PROJECT_DIR\nPlease ensure the app is in the project folder.\""
+    exit 1
+fi
+
+# Open Terminal and run the dev server
+osascript <<EOF
+tell application "Terminal"
+    activate
+    do script "cd '$PROJECT_DIR' && echo '🌳 Starting Talmudic Ilanot...' && /opt/homebrew/bin/npm run dev"
+end tell
+EOF
+
+# Wait for the server to start
+sleep 5
+
+# Open the browser
+open "http://localhost:3001"
+
+# Show notification
+osascript -e 'display notification "App is running at http://localhost:3001" with title "Talmudic Ilanot"'

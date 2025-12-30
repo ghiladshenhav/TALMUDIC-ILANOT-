@@ -2,21 +2,152 @@
 @config "./tailwind.config.js";
 
 @layer base {
-  body {
-    @apply bg-background-dark text-text-dark font-sans antialiased;
+
+  html,
+  body,
+  #root {
+    background: #050a05 !important;
+    min-height: 100vh;
   }
 
-  /* Custom Scrollbar for Webkit */
+  #root {
+    background:
+      radial-gradient(ellipse at top right, rgba(16, 185, 129, 0.15) 0%, transparent 50%),
+      radial-gradient(ellipse at bottom left, rgba(139, 105, 20, 0.12) 0%, transparent 50%),
+      radial-gradient(ellipse at center, rgba(26, 77, 46, 0.2) 0%, transparent 70%),
+      linear-gradient(180deg, #050a05 0%, #0a1f0a 30%, #0f1a0f 60%, #050a05 100%) !important;
+    color: #f5f0e1;
+  }
+
+  /* Add subtle organic pattern overlay to body */
+  body::before {
+    content: '';
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-image:
+      radial-gradient(ellipse at top right, rgba(16, 185, 129, 0.08) 0%, transparent 50%),
+      radial-gradient(ellipse at bottom left, rgba(139, 105, 20, 0.06) 0%, transparent 50%);
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  /* Custom Scrollbar for Webkit - Forest Theme */
   ::-webkit-scrollbar {
     width: 8px;
     height: 8px;
   }
 
   ::-webkit-scrollbar-track {
-    @apply bg-background-dark;
+    @apply bg-forest-deep;
   }
 
   ::-webkit-scrollbar-thumb {
-    @apply bg-gray-300 rounded-full hover:bg-primary/50 transition-colors;
+    @apply bg-forest-mid rounded-full hover:bg-primary transition-colors;
+  }
+}
+
+@layer utilities {
+
+  /* Forest gradient backgrounds */
+  .bg-forest-gradient {
+    background: linear-gradient(135deg, #0a1f0a 0%, #132613 50%, #1a4d2e 100%);
+  }
+
+  .bg-forest-radial {
+    background: radial-gradient(ellipse at top right, #1a4d2e20 0%, transparent 50%),
+      radial-gradient(ellipse at bottom left, #8B691410 0%, transparent 50%),
+      #0a1f0a;
+  }
+
+  /* Organic card styling */
+  .card-organic {
+    background: linear-gradient(135deg, #132613 0%, #0f1f0f 100%);
+    border: 1px solid #1a4d2e40;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3),
+      inset 0 1px 0 rgba(16, 185, 129, 0.05);
+  }
+
+  .card-organic:hover {
+    border-color: #10B98140;
+    box-shadow: 0 8px 30px rgba(16, 185, 129, 0.1),
+      inset 0 1px 0 rgba(16, 185, 129, 0.1);
+  }
+
+  /* Parchment texture for light mode */
+  .bg-parchment {
+    background-color: #f5f0e1;
+    background-image: url("data:image/svg+xml,%3Csvg width='100' height='100' viewBox='0 0 100 100' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.03'/%3E%3C/svg%3E");
+  }
+
+  /* Leaf animation */
+  @keyframes sway {
+
+    0%,
+    100% {
+      transform: rotate(-2deg);
+    }
+
+    50% {
+      transform: rotate(2deg);
+    }
+  }
+
+  .animate-sway {
+    animation: sway 4s ease-in-out infinite;
+  }
+
+  /* Grow animation for trees */
+  @keyframes grow {
+    from {
+      transform: scaleY(0.8);
+      opacity: 0.5;
+    }
+
+    to {
+      transform: scaleY(1);
+      opacity: 1;
+    }
+  }
+
+  .animate-grow {
+    animation: grow 0.5s ease-out;
+    transform-origin: bottom center;
+  }
+
+  /* Fade in animation for cards */
+  @keyframes fade-in {
+    from {
+      opacity: 0;
+      transform: translateY(10px);
+    }
+
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  .animate-fade-in {
+    animation: fade-in 0.4s ease-out backwards;
+  }
+
+  /* Branch connection line */
+  .branch-line {
+    background: linear-gradient(180deg, #10B981 0%, #8B6914 50%, transparent 100%);
+  }
+
+  /* Root glow effect */
+  .root-glow {
+    box-shadow: 0 0 30px rgba(16, 185, 129, 0.15),
+      0 0 60px rgba(16, 185, 129, 0.05);
+  }
+
+  /* Text selection with forest theme */
+  ::selection {
+    background: #10B98140;
+    color: #f5f0e1;
   }
 }

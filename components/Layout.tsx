@@ -5,28 +5,34 @@ import { AIFinding } from '../types';
 
 interface LayoutProps {
     children: React.ReactNode;
-    currentView: 'dashboard' | 'split-pane' | 'analyzer' | 'assistant' | 'library';
-    onViewChange: (view: 'dashboard' | 'split-pane' | 'analyzer' | 'assistant' | 'library') => void;
+    sidebar: React.ReactNode;
     showRightPanel?: boolean;
     aiFindings?: AIFinding[];
     onApproveFinding?: (finding: AIFinding) => void;
     onDismissFinding?: (findingId: string) => void;
+    orientation?: 'vertical' | 'horizontal';
 }
 
 const Layout: React.FC<LayoutProps> = ({
     children,
-    currentView,
-    onViewChange,
+    sidebar,
     showRightPanel = false,
     aiFindings = [],
     onApproveFinding = () => { },
-    onDismissFinding = () => { }
+    onDismissFinding = () => { },
+    orientation = 'vertical'
 }) => {
-    return (
-        <div className="flex h-screen w-full bg-background-dark text-text-dark overflow-hidden font-sans">
-            <Sidebar currentView={currentView} onViewChange={onViewChange} />
+    // Clone sidebar element to pass the orientation prop if it's a valid React element
+    const sidebarWithProps = React.isValidElement(sidebar)
+        ? React.cloneElement(sidebar as React.ReactElement<any>, { orientation })
+        : sidebar;
 
-            <main className="flex-1 flex flex-col min-w-0 relative overflow-hidden">
+    return (
+        <div className={`flex h-screen w-full overflow-hidden font-sans transition-colors duration-200 ${orientation === 'horizontal' ? 'flex-col' : 'flex-row'}`}
+            style={{ background: 'linear-gradient(135deg, #0a1f0a 0%, #0f1a0f 50%, #0a140a 100%)' }}>
+            {sidebarWithProps}
+
+            <main className="flex-1 flex flex-col min-w-0 relative overflow-hidden h-full text-[#f5f0e1]">
                 {children}
             </main>
 
