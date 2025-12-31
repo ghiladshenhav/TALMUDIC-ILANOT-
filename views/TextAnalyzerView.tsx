@@ -60,6 +60,9 @@ const TextAnalyzerView: React.FC<TextAnalyzerViewProps> = ({
     const [hasLoadedFromLibrary, setHasLoadedFromLibrary] = useState<boolean>(
         !!(initialFindings && initialFindings.length > 0)
     );
+    const [selectedFindingId, setSelectedFindingId] = useState<string | null>(null);
+    const [isResegmenting, setIsResegmenting] = useState<boolean>(false);
+    const sourceTextRef = React.useRef<HTMLDivElement>(null);
 
     // Log when component mounts with initial props
     console.log('[TextAnalyzerView] Mounted with:', {
@@ -349,6 +352,96 @@ IMPORTANT: If the input text contains the English translation of a Talmudic sour
     // Get the display text - prefer fullText (with page markers) over initialText
     const displayText = initialFullText || inputText || '';
 
+    // Get the currently selected finding
+    const selectedFinding = useMemo(() =>
+        suggestions.find(s => s.id === selectedFindingId),
+        [suggestions, selectedFindingId]
+    );
+
+    // Handle clicking on a finding to highlight it in source
+    const handleFindingClick = (findingId: string) => {
+        setSelectedFindingId(prev => prev === findingId ? null : findingId);
+        setIsResegmenting(false);
+    };
+
+    // Render text with highlighted snippet
+    const renderTextWithHighlight = () => {
+        if (!displayText) {
+            return <p className="text-subtext-dark italic">No source text available</p>;
+        }
+
+        if (!selectedFinding?.snippet) {
+            return displayText;
+        }
+
+        const snippet = selectedFinding.snippet;
+        const index = displayText.indexOf(snippet);
+
+        if (index === -1) {
+            // Snippet not found - try fuzzy match
+            return (
+                <>
+                    {displayText}
+                    <div className="mt-4 p-3 bg-yellow-500/20 border border-yellow-500/50 rounded-lg text-sm">
+                        <p className="text-yellow-400">⚠️ Could not locate this snippet in source text:</p>
+                        <p className="text-white/80 mt-1 italic">"{snippet}"</p>
+                    </div>
+                </>
+            );
+        }
+
+        const before = displayText.substring(0, index);
+        const highlighted = displayText.substring(index, index + snippet.length);
+        const after = displayText.substring(index + snippet.length);
+
+        return (
+            <>
+                {before}
+                <mark
+                    className="bg-primary/30 text-white px-1 rounded border-l-4 border-primary"
+                    id="highlighted-snippet"
+                >
+                    {highlighted}
+                </mark>
+                {after}
+            </>
+        );
+    };
+
+    // Handle text selection for resegmenting
+    const handleTextSelection = () => {
+        if (!isResegmenting || !selectedFindingId) return;
+
+        const selection = window.getSelection();
+        if (!selection || selection.isCollapsed) return;
+
+        const selectedText = selection.toString().trim();
+        if (!selectedText) return;
+
+        // Update the finding's snippet
+        setSuggestions(prev => prev.map(s =>
+            s.id === selectedFindingId
+                ? { ...s, snippet: selectedText }
+                : s
+        ));
+
+        setIsResegmenting(false);
+        selection.removeAllRanges();
+    };
+
+    // Scroll to highlighted text when selection changes
+    useEffect(() => {
+        if (selectedFindingId) {
+            // Small delay to let React render the highlight
+            setTimeout(() => {
+                const highlightEl = document.getElementById('highlighted-snippet');
+                if (highlightEl) {
+                    highlightEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                }
+            }, 100);
+        }
+    }, [selectedFindingId]);
+
     return (
         <div className="flex-1 flex flex-col bg-background-dark text-text-dark overflow-hidden">
             {/* Header - Always visible */}
@@ -395,20 +488,27 @@ IMPORTANT: If the input text contains the English translation of a Talmudic sour
                 <div className="flex-1 flex overflow-hidden">
                     {/* LEFT PANEL - Source Text */}
                     <div className="w-1/2 flex flex-col border-r border-border-dark overflow-hidden">
-                        <div className="px-4 py-3 border-b border-border-dark bg-surface-dark">
+                        <div className="px-4 py-3 border-b border-border-dark bg-surface-dark flex items-center justify-between">
                             <h2 className="text-sm font-bold text-white flex items-center gap-2">
                                 <span className="material-symbols-outlined text-lg">description</span>
                                 Source Text
                             </h2>
+                            {isResegmenting && (
+                                <span className="text-xs text-primary animate-pulse">
+                                    Select text to redefine quote...
+                                </span>
+                            )}
                         </div>
-                        <div className="flex-1 overflow-y-auto p-4">
+                        <div
+                            ref={sourceTextRef}
+                            className={`flex-1 overflow-y-auto p-4 ${isResegmenting ? 'cursor-text bg-primary/5' : ''}`}
+                            onMouseUp={handleTextSelection}
+                        >
                             <div
                                 className="prose prose-invert max-w-none text-sm leading-relaxed whitespace-pre-wrap font-serif"
                                 style={{ direction: 'rtl', textAlign: 'right' }}
                             >
-                                {displayText || (
-                                    <p className="text-subtext-dark italic">No source text available</p>
-                                )}
+                                {renderTextWithHighlight()}
                             </div>
                         </div>
                     </div>
@@ -432,13 +532,42 @@ IMPORTANT: If the input text contains the English translation of a Talmudic sour
                                 </div>
                             ) : suggestions.length > 0 ? (
                                 suggestions.map(s => (
-                                    <SuggestionCard
+                                    <div
                                         key={s.id}
-                                        suggestion={s}
-                                        onAction={handleSuggestionAction}
-                                        isProcessed={processedSuggestionIds.has(s.id)}
-                                        isExisting={checkIsExisting(s.source)}
-                                    />
+                                        className={`relative rounded-lg transition-all ${selectedFindingId === s.id
+                                                ? 'ring-2 ring-primary'
+                                                : 'hover:ring-1 hover:ring-white/20'
+                                            }`}
+                                    >
+                                        <div
+                                            className="cursor-pointer"
+                                            onClick={() => handleFindingClick(s.id)}
+                                        >
+                                            <SuggestionCard
+                                                suggestion={s}
+                                                onAction={handleSuggestionAction}
+                                                isProcessed={processedSuggestionIds.has(s.id)}
+                                                isExisting={checkIsExisting(s.source)}
+                                            />
+                                        </div>
+                                        {selectedFindingId === s.id && (
+                                            <div className="flex items-center gap-2 px-3 py-2 bg-surface-dark border-t border-border-dark">
+                                                <button
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        setIsResegmenting(true);
+                                                    }}
+                                                    className="text-xs flex items-center gap-1 px-2 py-1 rounded bg-primary/20 text-primary hover:bg-primary/30 transition-colors"
+                                                >
+                                                    <span className="material-symbols-outlined !text-sm">edit</span>
+                                                    Redefine Quote
+                                                </button>
+                                                <span className="text-xs text-subtext-dark">
+                                                    Click to highlight in source
+                                                </span>
+                                            </div>
+                                        )}
+                                    </div>
                                 ))
                             ) : (
                                 <div className="flex flex-col items-center justify-center py-12 text-center">
