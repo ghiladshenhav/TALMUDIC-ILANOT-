@@ -5,7 +5,40 @@ export interface SefariaText {
     ref: string;
 }
 
+// Import the local data fetcher
+import { getLocalTalmudText } from './sefaria-local';
+
+// Flag to control local-first behavior (can be disabled for testing)
+let useLocalFirst = true;
+
+export function setLocalFirst(enabled: boolean): void {
+    useLocalFirst = enabled;
+    console.log(`[Sefaria] Local-first mode: ${enabled ? 'enabled' : 'disabled'}`);
+}
+
+/**
+ * Fetch Talmudic text by reference.
+ * Tries local data first (if available), then falls back to API.
+ */
 export const fetchTalmudText = async (ref: string): Promise<SefariaText | null> => {
+    // Try local data first (no API call needed!)
+    if (useLocalFirst) {
+        const localResult = await getLocalTalmudText(ref);
+        if (localResult) {
+            console.log(`[Sefaria] Using local data for: "${ref}"`);
+            return localResult;
+        }
+        console.log(`[Sefaria] Local data not found for "${ref}", falling back to API...`);
+    }
+
+    // Fallback to API
+    return fetchTalmudTextFromAPI(ref);
+};
+
+/**
+ * Fetch Talmudic text from Sefaria API (original implementation)
+ */
+const fetchTalmudTextFromAPI = async (ref: string): Promise<SefariaText | null> => {
     try {
         // Clean the ref to ensure Sefaria understands it
         // Remove "Talmud Bavli", "Masechet", "b.", commas, etc.
@@ -14,21 +47,21 @@ export const fetchTalmudText = async (ref: string): Promise<SefariaText | null> 
             .replace(/,/g, '')
             .trim();
 
-        console.log(`Fetching Sefaria text for: "${cleanRef}" (original: "${ref}")`);
+        console.log(`[Sefaria API] Fetching: "${cleanRef}" (original: "${ref}")`);
 
         // Use the Vite proxy to avoid CORS issues
         const url = `/api/sefaria/texts/${encodeURIComponent(cleanRef)}?context=0&pad=0&alts=0&bare=0`;
 
         const response = await fetch(url);
         if (!response.ok) {
-            console.warn(`Sefaria API returned status ${response.status} for ref: ${ref}`);
+            console.warn(`[Sefaria API] Status ${response.status} for ref: ${ref}`);
             return null;
         }
 
         const data = await response.json();
 
         if (data.error) {
-            console.warn(`Sefaria API error for ref ${ref}:`, data.error);
+            console.warn(`[Sefaria API] Error for ref ${ref}:`, data.error);
             return null;
         }
 
@@ -66,7 +99,7 @@ export const fetchTalmudText = async (ref: string): Promise<SefariaText | null> 
         };
 
     } catch (error) {
-        console.error("Failed to fetch from Sefaria:", error);
+        console.error("[Sefaria API] Failed to fetch:", error);
         return null;
     }
 };
