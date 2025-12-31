@@ -346,154 +346,186 @@ IMPORTANT: If the input text contains the English translation of a Talmudic sour
         return !!match;
     };
 
+    // Get the display text - prefer fullText (with page markers) over initialText
+    const displayText = initialFullText || inputText || '';
+
     return (
-        <div className="flex-1 flex flex-col bg-background-dark text-text-dark overflow-y-auto">
-            <div className="w-full max-w-4xl mx-auto p-8 space-y-8">
-                {/* Header */}
+        <div className="flex-1 flex flex-col bg-background-dark text-text-dark overflow-hidden">
+            {/* Header - Always visible */}
+            <div className="px-6 py-4 border-b border-border-dark flex items-center justify-between">
                 <div>
-                    <h1 className="text-4xl font-black leading-tight tracking-[-0.033em] text-white flex items-center gap-4">
-                        <span className="material-symbols-outlined text-ai-primary !text-5xl">plagiarism</span>
+                    <h1 className="text-2xl font-black text-white flex items-center gap-3">
+                        <span className="material-symbols-outlined text-ai-primary !text-3xl">plagiarism</span>
                         Reference Detector
                     </h1>
-                    <p className="text-white/60 mt-2 max-w-3xl">Upload a document and provide its author and title. The AI will find all Talmudic/Midrashic references, retrieve the original source text, and help you add them to your graph.</p>
+                    {hasLoadedFromLibrary && (
+                        <p className="text-sm text-white/60 mt-1">{workTitle} by {author} • {suggestions.length} references</p>
+                    )}
                 </div>
-
-                {/* Source Section - Shows compact view for Library texts, full upload form for new analysis */}
-                {hasLoadedFromLibrary ? (
-                    <div className="bg-card-dark border border-primary/30 rounded-xl p-6">
-                        <div className="flex items-center justify-between">
-                            <div>
-                                <h2 className="text-lg font-bold text-white flex items-center gap-2">
-                                    <span className="material-symbols-outlined text-primary">library_books</span>
-                                    Loaded from Library
-                                </h2>
-                                <p className="text-sm text-white/60 mt-1">{workTitle} by {author}</p>
-                                <p className="text-xs text-primary mt-2">{suggestions.length} references found</p>
-                            </div>
-                            <button
-                                onClick={() => {
-                                    setHasLoadedFromLibrary(false);
-                                    setSuggestions([]);
-                                    setFile(null);
-                                    if (onResetAnalysis) onResetAnalysis();
-                                }}
-                                className="h-10 px-4 rounded-lg text-sm font-bold text-subtext-dark bg-white/10 hover:bg-white/20 transition-colors"
-                            >
-                                Start New Analysis
-                            </button>
-                        </div>
-                    </div>
-                ) : (
-                    <div className="bg-card-dark border border-border-dark rounded-xl p-6">
-                        <h2 className="text-lg font-bold text-white">1. Provide Source</h2>
-                        <p className="text-sm text-subtext-dark mt-1 mb-4">Add the source text and its metadata.</p>
-
-                        <div className="space-y-4">
-                            <label className="block">
-                                <span className="text-sm font-medium text-text-dark">Author</span>
-                                <input type="text" value={author} onChange={e => setAuthor(e.target.value)} placeholder="e.g., Emmanuel Levinas" className="modal-input mt-1" />
-                            </label>
-                            <label className="block">
-                                <span className="text-sm font-medium text-text-dark">Work Title</span>
-                                <input type="text" value={workTitle} onChange={e => setWorkTitle(e.target.value)} placeholder="e.g., Totality and Infinity" className="modal-input mt-1" />
-                            </label>
-                        </div>
-
-                        <label
-                            htmlFor="file-upload"
-                            onDragEnter={handleDragEnter}
-                            onDragLeave={handleDragLeave}
-                            onDragOver={handleDragEvent}
-                            onDrop={handleDrop}
-                            className={`group mt-4 flex flex-col items-center justify-center w-full h-48 border-2 border-dashed rounded-xl cursor-pointer transition-all duration-300 ${isDragging
-                                ? 'border-primary bg-primary/10 scale-[1.02]'
-                                : 'border-border-dark bg-background-dark hover:bg-white/5 hover:border-primary/50'}`}
-                        >
-                            <div className="flex flex-col items-center justify-center pt-5 pb-6 text-center">
-                                <div className={`p-4 rounded-full mb-3 transition-colors ${isDragging ? 'bg-primary/20' : 'bg-surface-dark group-hover:bg-white/10'}`}>
-                                    <span className={`material-symbols-outlined text-4xl transition-colors ${isDragging ? 'text-primary' : 'text-subtext-dark group-hover:text-primary'}`}>upload_file</span>
-                                </div>
-                                <p className="mb-2 text-lg font-medium text-white">
-                                    <span className="font-bold text-primary">Click to upload</span> or drag and drop
-                                </p>
-                                <p className="text-sm text-subtext-dark">TXT, PDF, JPG, PNG, TIFF</p>
-                            </div>
-                            <input id="file-upload" type="file" className="hidden" onChange={(e) => handleFileChange(e.target.files ? e.target.files[0] : null)} accept=".txt,.pdf,.jpg,.jpeg,.png,.tiff" />
-                        </label>
-
-                        {file && (
-                            <div className="mt-4 p-3 bg-white/5 rounded-lg flex items-center justify-between gap-3">
-                                <div className="flex items-center gap-3 overflow-hidden">
-                                    <span className="material-symbols-outlined text-primary">description</span>
-                                    <p className="text-sm text-white truncate flex-1" title={file.name}>{file.name}</p>
-                                </div>
-                                <button onClick={() => { setFile(null); setSuggestions([]); }} className="text-subtext-dark hover:text-white transition-colors flex-shrink-0">
-                                    <span className="material-symbols-outlined !text-xl">close</span>
-                                </button>
-                            </div>
-                        )}
-
-                        {error && <p className="text-red-400 text-sm mt-4">{error}</p>}
-
-                        <button
-                            onClick={handleAnalyze}
-                            disabled={!file || !author || !workTitle || isLoading || isProcessing}
-                            className="w-full mt-6 flex items-center justify-center gap-2 h-12 px-6 rounded-lg bg-ai-primary text-white font-bold transition-opacity hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
-                        >
-                            {isLoading ? (
-                                <>
-                                    <svg className="animate-spin h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path></svg>
-                                    <span>Analyzing...</span>
-                                </>
-                            ) : (
-                                <>
-                                    <span className="material-symbols-outlined">spark</span>
-                                    <span>Find References</span>
-                                </>
-                            )}
+                <div className="flex items-center gap-3">
+                    {processedCount > 0 && !isProcessing && (
+                        <button onClick={handleClearApproved} className="h-10 px-4 rounded-lg text-sm font-bold text-subtext-dark bg-white/10 hover:bg-white/20 transition-colors">
+                            Clear Added ({processedCount})
                         </button>
-                    </div>
-                )}
-
-                {/* Results Column */}
-                <div>
-                    <div className="flex flex-wrap justify-between items-center mb-4 gap-3">
-                        <h2 className="text-lg font-bold text-white">2. Review & Approve References</h2>
-                        <div className="flex items-center gap-3">
-                            {processedCount > 0 && !isProcessing && (
-                                <button onClick={handleClearApproved} className="h-10 px-4 rounded-lg text-sm font-bold text-subtext-dark bg-white/10 hover:bg-white/20 transition-colors">
-                                    Clear Added ({processedCount})
-                                </button>
-                            )}
-                            {isReadyToProcess && (
-                                <button onClick={handleProcessSelections} disabled={!isReadyToProcess} className="h-10 px-4 rounded-lg text-sm font-bold text-background-dark bg-primary hover:opacity-90 transition-opacity flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed">
-                                    {isProcessing ? 'Processing...' : `Add ${approvedCount} Selection${approvedCount > 1 ? 's' : ''} to Graph`}
-                                </button>
-                            )}
-                        </div>
-                    </div>
-                    {isLoading ? (
-                        <div className="w-full bg-card-dark border border-dashed border-border-dark rounded-xl flex flex-col items-center justify-center p-12 text-center">
-                            <svg className="animate-spin h-12 w-12 text-ai-primary" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                            </svg>
-                            <p className="mt-4 font-bold text-white">Scanning Document for References...</p>
-                            <p className="text-sm text-subtext-dark">This may take a moment for large files.</p>
-                        </div>
-                    ) : suggestions.length > 0 ? (
-                        <div className="space-y-4">
-                            {suggestions.map(s => <SuggestionCard key={s.id} suggestion={s} onAction={handleSuggestionAction} isProcessed={processedSuggestionIds.has(s.id)} isExisting={checkIsExisting(s.source)} />)}
-                        </div>
-                    ) : (
-                        <div className="w-full bg-card-dark border border-dashed border-border-dark rounded-xl flex flex-col items-center justify-center p-12 text-center">
-                            <span className="material-symbols-outlined text-5xl text-subtext-dark">pending</span>
-                            <p className="mt-2 font-bold text-white">References will appear here</p>
-                            <p className="text-sm text-subtext-dark">Fill out the source details and analyze a document to begin.</p>
-                        </div>
+                    )}
+                    {isReadyToProcess && (
+                        <button onClick={handleProcessSelections} disabled={!isReadyToProcess} className="h-10 px-4 rounded-lg text-sm font-bold text-background-dark bg-primary hover:opacity-90 transition-opacity flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed">
+                            {isProcessing ? 'Processing...' : `Add ${approvedCount} to Graph`}
+                        </button>
+                    )}
+                    {hasLoadedFromLibrary && (
+                        <button
+                            onClick={() => {
+                                setHasLoadedFromLibrary(false);
+                                setSuggestions([]);
+                                setFile(null);
+                                setInputText('');
+                                if (onResetAnalysis) onResetAnalysis();
+                            }}
+                            className="h-10 px-4 rounded-lg text-sm font-bold text-subtext-dark bg-white/10 hover:bg-white/20 transition-colors"
+                        >
+                            New Analysis
+                        </button>
                     )}
                 </div>
             </div>
+
+            {/* Main Split Pane */}
+            {hasLoadedFromLibrary ? (
+                <div className="flex-1 flex overflow-hidden">
+                    {/* LEFT PANEL - Source Text */}
+                    <div className="w-1/2 flex flex-col border-r border-border-dark overflow-hidden">
+                        <div className="px-4 py-3 border-b border-border-dark bg-surface-dark">
+                            <h2 className="text-sm font-bold text-white flex items-center gap-2">
+                                <span className="material-symbols-outlined text-lg">description</span>
+                                Source Text
+                            </h2>
+                        </div>
+                        <div className="flex-1 overflow-y-auto p-4">
+                            <div
+                                className="prose prose-invert max-w-none text-sm leading-relaxed whitespace-pre-wrap font-serif"
+                                style={{ direction: 'rtl', textAlign: 'right' }}
+                            >
+                                {displayText || (
+                                    <p className="text-subtext-dark italic">No source text available</p>
+                                )}
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* RIGHT PANEL - Findings */}
+                    <div className="w-1/2 flex flex-col overflow-hidden">
+                        <div className="px-4 py-3 border-b border-border-dark bg-surface-dark">
+                            <h2 className="text-sm font-bold text-white flex items-center gap-2">
+                                <span className="material-symbols-outlined text-lg">format_list_bulleted</span>
+                                References ({suggestions.length})
+                            </h2>
+                        </div>
+                        <div className="flex-1 overflow-y-auto p-4 space-y-4">
+                            {isLoading ? (
+                                <div className="flex flex-col items-center justify-center py-12">
+                                    <svg className="animate-spin h-10 w-10 text-ai-primary" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+                                    </svg>
+                                    <p className="mt-4 text-white font-medium">Scanning...</p>
+                                </div>
+                            ) : suggestions.length > 0 ? (
+                                suggestions.map(s => (
+                                    <SuggestionCard
+                                        key={s.id}
+                                        suggestion={s}
+                                        onAction={handleSuggestionAction}
+                                        isProcessed={processedSuggestionIds.has(s.id)}
+                                        isExisting={checkIsExisting(s.source)}
+                                    />
+                                ))
+                            ) : (
+                                <div className="flex flex-col items-center justify-center py-12 text-center">
+                                    <span className="material-symbols-outlined text-4xl text-subtext-dark">pending</span>
+                                    <p className="mt-2 text-white font-medium">No references found</p>
+                                    <p className="text-sm text-subtext-dark">Run analysis to detect references</p>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            ) : (
+                /* Upload Form - shown when not loaded from library */
+                <div className="flex-1 overflow-y-auto">
+                    <div className="max-w-2xl mx-auto p-8 space-y-6">
+                        <div className="bg-card-dark border border-border-dark rounded-xl p-6">
+                            <h2 className="text-lg font-bold text-white">1. Provide Source</h2>
+                            <p className="text-sm text-subtext-dark mt-1 mb-4">Add the source text and its metadata.</p>
+
+                            <div className="space-y-4">
+                                <label className="block">
+                                    <span className="text-sm font-medium text-text-dark">Author</span>
+                                    <input type="text" value={author} onChange={e => setAuthor(e.target.value)} placeholder="e.g., Emmanuel Levinas" className="modal-input mt-1" />
+                                </label>
+                                <label className="block">
+                                    <span className="text-sm font-medium text-text-dark">Work Title</span>
+                                    <input type="text" value={workTitle} onChange={e => setWorkTitle(e.target.value)} placeholder="e.g., Totality and Infinity" className="modal-input mt-1" />
+                                </label>
+                            </div>
+
+                            <label
+                                htmlFor="file-upload"
+                                onDragEnter={handleDragEnter}
+                                onDragLeave={handleDragLeave}
+                                onDragOver={handleDragEvent}
+                                onDrop={handleDrop}
+                                className={`group mt-4 flex flex-col items-center justify-center w-full h-48 border-2 border-dashed rounded-xl cursor-pointer transition-all duration-300 ${isDragging
+                                    ? 'border-primary bg-primary/10 scale-[1.02]'
+                                    : 'border-border-dark bg-background-dark hover:bg-white/5 hover:border-primary/50'}`}
+                            >
+                                <div className="flex flex-col items-center justify-center pt-5 pb-6 text-center">
+                                    <div className={`p-4 rounded-full mb-3 transition-colors ${isDragging ? 'bg-primary/20' : 'bg-surface-dark group-hover:bg-white/10'}`}>
+                                        <span className={`material-symbols-outlined text-4xl transition-colors ${isDragging ? 'text-primary' : 'text-subtext-dark group-hover:text-primary'}`}>upload_file</span>
+                                    </div>
+                                    <p className="mb-2 text-lg font-medium text-white">
+                                        <span className="font-bold text-primary">Click to upload</span> or drag and drop
+                                    </p>
+                                    <p className="text-sm text-subtext-dark">TXT, PDF, JPG, PNG, TIFF</p>
+                                </div>
+                                <input id="file-upload" type="file" className="hidden" onChange={(e) => handleFileChange(e.target.files ? e.target.files[0] : null)} accept=".txt,.pdf,.jpg,.jpeg,.png,.tiff" />
+                            </label>
+
+                            {file && (
+                                <div className="mt-4 p-3 bg-white/5 rounded-lg flex items-center justify-between gap-3">
+                                    <div className="flex items-center gap-3 overflow-hidden">
+                                        <span className="material-symbols-outlined text-primary">description</span>
+                                        <p className="text-sm text-white truncate flex-1" title={file.name}>{file.name}</p>
+                                    </div>
+                                    <button onClick={() => { setFile(null); setSuggestions([]); }} className="text-subtext-dark hover:text-white transition-colors flex-shrink-0">
+                                        <span className="material-symbols-outlined !text-xl">close</span>
+                                    </button>
+                                </div>
+                            )}
+
+                            {error && <p className="text-red-400 text-sm mt-4">{error}</p>}
+
+                            <button
+                                onClick={handleAnalyze}
+                                disabled={!file || !author || !workTitle || isLoading || isProcessing}
+                                className="w-full mt-6 flex items-center justify-center gap-2 h-12 px-6 rounded-lg bg-ai-primary text-white font-bold transition-opacity hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                                {isLoading ? (
+                                    <>
+                                        <svg className="animate-spin h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path></svg>
+                                        <span>Analyzing...</span>
+                                    </>
+                                ) : (
+                                    <>
+                                        <span className="material-symbols-outlined">spark</span>
+                                        <span>Find References</span>
+                                    </>
+                                )}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
             <style>{`
                 .modal-input {
                     display: block;
