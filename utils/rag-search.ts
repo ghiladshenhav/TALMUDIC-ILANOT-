@@ -788,6 +788,26 @@ export async function upsertGroundTruthToPinecone(
             cachedIndexHost = await getPineconeIndexHost();
         }
 
+        // Sanitize metadata - remove undefined/null values and ensure valid types
+        const sanitizeMetadata = (obj: Record<string, any>): Record<string, any> => {
+            const cleaned: Record<string, any> = {};
+            for (const [key, value] of Object.entries(obj)) {
+                if (value === undefined || value === null) continue;
+                if (typeof value === 'object' && !(value instanceof Array)) continue; // Skip nested objects
+                cleaned[key] = typeof value === 'string' ? value.substring(0, 1000) : value;
+            }
+            return cleaned;
+        };
+
+        const cleanMetadata = {
+            ...sanitizeMetadata(metadata),
+            phrase: (metadata.phrase || phrase).substring(0, 500),
+            snippet: (metadata.snippet || snippet).substring(0, 1000),
+            correctionReason: (metadata.correctionReason || '').substring(0, 500)
+        };
+
+        console.log('[GT-RAG] Upserting to Pinecone:', { docId, metadataKeys: Object.keys(cleanMetadata) });
+
         // Upsert to Pinecone
         const upsertResponse = await fetch(`https://${cachedIndexHost}/vectors/upsert`, {
             method: 'POST',
@@ -800,19 +820,14 @@ export async function upsertGroundTruthToPinecone(
                 vectors: [{
                     id: docId,
                     values: embedding,
-                    metadata: {
-                        ...metadata,
-                        // Truncate long fields to stay within Pinecone metadata limits
-                        phrase: (metadata.phrase || phrase).substring(0, 500),
-                        snippet: (metadata.snippet || snippet).substring(0, 1000),
-                        correctionReason: (metadata.correctionReason || '').substring(0, 500)
-                    }
+                    metadata: cleanMetadata
                 }]
             })
         });
 
         if (!upsertResponse.ok) {
-            console.error(`[GT-RAG] Upsert failed: ${upsertResponse.status}`);
+            const errorText = await upsertResponse.text();
+            console.error(`[GT-RAG] Upsert failed: ${upsertResponse.status}`, errorText);
             return;
         }
 
