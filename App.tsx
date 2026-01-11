@@ -2120,7 +2120,6 @@ Output JSON ONLY.`;
                         history={chatHistory}
                         onSendMessage={handleSendMessage}
                         isLoading={isAiLoading}
-                        onSyncLibrary={handleSyncLibrary}
                         activeNode={selectedGraphNode || undefined}
                     />
                 );

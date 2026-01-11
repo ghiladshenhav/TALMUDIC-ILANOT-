@@ -10,6 +10,7 @@ import { searchGroundTruthByRelevance, formatGroundTruthForChunk, searchHybrid, 
 import { AnalysisProvider, isDictaAvailable, analyzeTextWithDicta } from './dicta-local';
 import { checkCache, cacheResponse } from './query-cache';
 import { detectReferences, detectionResultToFindings } from './citation-detector';
+import { prefilterWithGroundTruth, isPrefilterAvailable } from './gt-prefilter';
 
 enum SchemaType {
     STRING = "STRING",
@@ -80,7 +81,11 @@ const BASE_PROMPT = `You are a Talmudic research assistant with one task: to loc
  - "isImplicit": Boolean (true/false).
  - "pageNumber": The page number where the reference was found (derived from [[PAGE_X]]).
  
- IMPORTANT: If the input text contains the English translation of a Talmudic source, DO NOT create a separate finding for it if you have already identified the source itself. Just include the translation in the "translation" field of the main finding. We do not want separate nodes for the translation. Return a single JSON object with one key, "foundReferences", which is an array of these objects, ordered chronologically as they appear in the source text.
+ IMPORTANT: If the input text contains the English translation of a Talmudic source, DO NOT create a separate finding for it if you have already identified the source itself. Just include the translation in the "translation" field of the main finding. We do not want separate nodes for the translation.
+ 
+ IMPORTANT: LIMIT YOUR OUTPUT. Return ONLY genuine references you can confidently identify. If there are none, return an empty array. Quality over quantity - do NOT invent references.
+ 
+ Return a single JSON object with one key, "foundReferences", which is an array of these objects, ordered chronologically as they appear in the source text.
 
  --- DOCUMENT TEXT ---
  `;
@@ -134,8 +139,8 @@ export interface AnalysisOptions {
 // Re-export for convenience
 export type { AnalysisProvider } from './dicta-local';
 
-/** Chunk size used for splitting text - reduced from 4000 to 2000 for cost savings */
-const CHUNK_SIZE = 2000;
+/** Chunk size used for splitting text - increased to 4000 for fewer API calls */
+const CHUNK_SIZE = 4000;
 
 /**
  * Estimate the cost of analyzing a text without making any API calls.
@@ -267,6 +272,58 @@ Output JSON only:
 }
 `;
 
+/**
+ * Calculate character offsets for a snippet within source text.
+ * Returns the best match position with confidence score.
+ * Handles Hebrew RTL text and minor OCR/formatting variations.
+ */
+function calculateSnippetOffsets(
+    snippet: string,
+    fullText: string,
+    chunkOffset: number = 0
+): { startChar: number; endChar: number; confidence: number } | null {
+    if (!snippet || !fullText) return null;
+
+    // Normalize for matching (handle whitespace variations)
+    const normalizedSnippet = snippet.trim().replace(/\s+/g, ' ');
+    const normalizedText = fullText.replace(/\s+/g, ' ');
+
+    // Exact match first (confidence = 1.0)
+    const exactIndex = normalizedText.indexOf(normalizedSnippet);
+    if (exactIndex !== -1) {
+        return {
+            startChar: chunkOffset + exactIndex,
+            endChar: chunkOffset + exactIndex + normalizedSnippet.length,
+            confidence: 1.0
+        };
+    }
+
+    // Fallback: anchor-based matching using first 50 chars (confidence = 0.7)
+    const anchorLength = Math.min(50, normalizedSnippet.length);
+    const anchor = normalizedSnippet.substring(0, anchorLength);
+    const anchorIndex = normalizedText.indexOf(anchor);
+    if (anchorIndex !== -1) {
+        return {
+            startChar: chunkOffset + anchorIndex,
+            endChar: chunkOffset + anchorIndex + normalizedSnippet.length,
+            confidence: 0.7
+        };
+    }
+
+    // Last resort: try end of snippet as anchor (confidence = 0.5)
+    const endAnchor = normalizedSnippet.substring(Math.max(0, normalizedSnippet.length - anchorLength));
+    const endAnchorIndex = normalizedText.indexOf(endAnchor);
+    if (endAnchorIndex !== -1) {
+        const estimatedStart = endAnchorIndex - (normalizedSnippet.length - endAnchor.length);
+        return {
+            startChar: chunkOffset + Math.max(0, estimatedStart),
+            endChar: chunkOffset + endAnchorIndex + endAnchor.length,
+            confidence: 0.5
+        };
+    }
+
+    return null; // Cannot ground this snippet
+}
 /**
  * Format suspects with their RAG candidates for the Librarian prompt.
  * Groups each suspect with its specific candidates as requested.
@@ -464,7 +521,8 @@ async function processChunkWithHypothesisScanner(
                                     isImplicit: { type: Type.BOOLEAN },
                                     pageNumber: { type: Type.INTEGER }
                                 },
-                                required: ["source", "snippet", "justification", "title", "isImplicit", "pageNumber"]
+                                // COST FIX: Only require essential fields to prevent MAX_TOKENS
+                                required: ["source", "snippet", "justification", "isImplicit"]
                             }
                         }
                     }
@@ -595,7 +653,30 @@ export const analyzeFullText = async (
             continue;
         }
 
-        console.log(`[Pre-filter] Chunk ${i + 1}/${chunks.length}: Likely citations detected - calling LLM`);
+        console.log(`[Pre-filter] Chunk ${i + 1}/${chunks.length}: Likely citations detected`);
+
+        // ========================================
+        // GT PRE-FILTER: Check if we can skip LLM using Ground Truth
+        // ========================================
+        if (effectiveUserId && isPrefilterAvailable()) {
+            const gtPrefilter = await prefilterWithGroundTruth(chunk, effectiveUserId);
+
+            // Add any auto-generated findings from APPROVE patterns
+            if (gtPrefilter.autoFindings.length > 0) {
+                console.log(`[GT Pre-filter] ✅ Auto-added ${gtPrefilter.autoFindings.length} findings`);
+                allFindings = [...allFindings, ...gtPrefilter.autoFindings];
+            }
+
+            // Skip LLM if GT says we should
+            if (gtPrefilter.shouldSkipLLM) {
+                console.log(`[GT Pre-filter] ⏭️ Skipping LLM for chunk ${i + 1}: ${gtPrefilter.reason}`);
+                processedChars += chunk.length;
+                if (progressCallback) progressCallback(processedChars, fullText.length);
+                continue; // SKIP EXPENSIVE LLM CALL
+            }
+        }
+
+        console.log(`[Pre-filter] Chunk ${i + 1}/${chunks.length}: Calling LLM...`);
 
         if (enableHypothesisScanner) {
             // 2-Pass: Scanner (high recall) -> Librarian (high precision)
@@ -635,22 +716,34 @@ export const analyzeFullText = async (
     });
 
     // Convert to AIFinding type - ensure all fields have defaults to prevent Firebase 'undefined' errors
-    return Array.from(uniqueFindings.values()).map((f: any, index: number) => ({
-        id: crypto.randomUUID(),
-        type: f.isImplicit ? 'thematic_fit' : 'reference', // Map isImplicit to finding type
-        source: f.source || 'Unknown Source',
-        snippet: f.snippet || '',
-        contextBefore: f.contextBefore || '',
-        contextAfter: f.contextAfter || '',
-        justification: f.justification || '',
-        title: f.title || 'Untitled Reference',
-        hebrewText: f.hebrewText || '',
-        translation: f.translation || '',
-        pageNumber: f.pageNumber ?? 1,
-        status: 'pending', // AIFindingStatus equivalent (assuming user imports are not mapped to enum here)
-        confidence: 0.8,
-        isImplicit: f.isImplicit ?? false
-    } as any)); // flexible casting to AIFinding since types might differ slightly in enum usage
+    return Array.from(uniqueFindings.values()).map((f: any, index: number) => {
+        // Calculate source grounding offsets (LangExtract-inspired)
+        const grounding = calculateSnippetOffsets(f.snippet || '', fullText);
+        if (grounding) {
+            console.log(`[Grounding] Snippet "${(f.snippet || '').substring(0, 40)}..." matched at chars ${grounding.startChar}-${grounding.endChar} (confidence: ${grounding.confidence})`);
+        }
+
+        return {
+            id: crypto.randomUUID(),
+            type: f.isImplicit ? 'thematic_fit' : 'reference', // Map isImplicit to finding type
+            source: f.source || 'Unknown Source',
+            snippet: f.snippet || '',
+            contextBefore: f.contextBefore || '',
+            contextAfter: f.contextAfter || '',
+            justification: f.justification || '',
+            title: f.title || 'Untitled Reference',
+            hebrewText: f.hebrewText || '',
+            translation: f.translation || '',
+            pageNumber: f.pageNumber ?? 1,
+            status: 'pending', // AIFindingStatus equivalent (assuming user imports are not mapped to enum here)
+            confidence: 0.8,
+            isImplicit: f.isImplicit ?? false,
+            // Source Grounding fields
+            snippetStartChar: grounding?.startChar,
+            snippetEndChar: grounding?.endChar,
+            matchConfidence: grounding?.confidence ?? 0
+        } as any; // flexible casting to AIFinding since types might differ slightly in enum usage
+    });
 };
 
 // Helper to process a single chunk with adaptive recursion AND per-chunk Ground Truth
@@ -708,7 +801,7 @@ const processAnalyzeChunk = async (textSegment: string, userId?: string, provide
                 model: model,
                 contents: chunkContent,
                 config: {
-                    maxOutputTokens: 8192,
+                    maxOutputTokens: 8192, // Increased to prevent MAX_TOKENS chunking
                     responseMimeType: "application/json",
                     responseSchema: {
                         type: Type.OBJECT,
@@ -729,7 +822,9 @@ const processAnalyzeChunk = async (textSegment: string, userId?: string, provide
                                         isImplicit: { type: Type.BOOLEAN },
                                         pageNumber: { type: Type.INTEGER },
                                     },
-                                    required: ["source", "snippet", "contextBefore", "contextAfter", "justification", "title", "hebrewText", "translation", "isImplicit", "pageNumber"]
+                                    // COST FIX: Only require essential fields to prevent MAX_TOKENS
+                                    // Optional fields (hebrewText, translation, etc.) can be fetched later from Sefaria
+                                    required: ["source", "snippet", "justification", "isImplicit"]
                                 }
                             }
                         }

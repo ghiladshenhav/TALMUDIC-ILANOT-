@@ -1,9 +1,10 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
 import { GoogleGenAI, Type } from "@google/genai";
-import { AIFinding, AIFindingType, AIFindingStatus } from '../types';
+import { AIFinding, AIFindingType, AIFindingStatus, GroundTruthAction } from '../types';
 import SuggestionCard from '../components/analyzer/SuggestionCard';
 import { generateContentWithRetry } from '../utils/ai-helpers';
+import { saveGroundTruthExample } from '../utils/ground-truth-helpers';
 
 interface TextAnalyzerViewProps {
     onApproveFinding: (finding: AIFinding) => Promise<void>;
@@ -62,16 +63,8 @@ const TextAnalyzerView: React.FC<TextAnalyzerViewProps> = ({
     );
     const [selectedFindingId, setSelectedFindingId] = useState<string | null>(null);
     const [isResegmenting, setIsResegmenting] = useState<boolean>(false);
+    // Reference for source text scrolling
     const sourceTextRef = React.useRef<HTMLDivElement>(null);
-
-    // Log when component mounts with initial props
-    console.log('[TextAnalyzerView] Mounted with:', {
-        initialFindingsCount: initialFindings?.length || 0,
-        hasLoadedFromLibrary: !!(initialFindings && initialFindings.length > 0),
-        initialTitle,
-        initialAuthor,
-        textId
-    });
 
     // Update state when props change (e.g., user selects a different text from Library)
     useEffect(() => {
@@ -535,8 +528,8 @@ IMPORTANT: If the input text contains the English translation of a Talmudic sour
                                     <div
                                         key={s.id}
                                         className={`relative rounded-lg transition-all ${selectedFindingId === s.id
-                                                ? 'ring-2 ring-primary'
-                                                : 'hover:ring-1 hover:ring-white/20'
+                                            ? 'ring-2 ring-primary'
+                                            : 'hover:ring-1 hover:ring-white/20'
                                             }`}
                                     >
                                         <div
@@ -548,6 +541,37 @@ IMPORTANT: If the input text contains the English translation of a Talmudic sour
                                                 onAction={handleSuggestionAction}
                                                 isProcessed={processedSuggestionIds.has(s.id)}
                                                 isExisting={checkIsExisting(s.source)}
+                                                onMarkGroundTruth={async (finding, action, explanation) => {
+                                                    try {
+                                                        const gtAction = action === 'APPROVE' ? GroundTruthAction.APPROVE : GroundTruthAction.REJECT;
+
+                                                        // Save to GT collection (for semantic search)
+                                                        await saveGroundTruthExample(
+                                                            'user-1',
+                                                            finding.snippet,
+                                                            finding.snippet,
+                                                            gtAction,
+                                                            finding.source,
+                                                            { justification: explanation, isGroundTruth: true }
+                                                        );
+
+                                                        // Also save to training examples (for prompt injection)
+                                                        const { saveTrainingExample } = await import('../utils/feedback-helpers');
+                                                        await saveTrainingExample({
+                                                            ...finding,
+                                                            sourceDocumentId: currentTextId,
+                                                            userExplanation: explanation
+                                                        }, action === 'APPROVE');
+
+                                                        // Update finding to show GT badge
+                                                        setSuggestions(prev => prev.map(f =>
+                                                            f.id === finding.id ? { ...f, isGroundTruth: true } : f
+                                                        ));
+                                                        console.log(`[GT] Saved ${action} to BOTH collections for: ${finding.source}`);
+                                                    } catch (error) {
+                                                        console.error('[GT] Failed to save:', error);
+                                                    }
+                                                }}
                                             />
                                         </div>
                                         {selectedFindingId === s.id && (

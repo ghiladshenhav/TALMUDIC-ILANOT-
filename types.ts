@@ -310,6 +310,12 @@ export interface AIFinding {
 
     // Needs Verification (AI detected reference but couldn't find exact page)
     needsVerification?: boolean;    // Flag for user to manually look up the exact source
+
+    // Source Grounding (LangExtract-inspired)
+    // Maps the extracted snippet back to exact character positions in source text
+    snippetStartChar?: number;      // Character offset where snippet begins in source text
+    snippetEndChar?: number;        // Character offset where snippet ends
+    matchConfidence?: number;       // 0-1 confidence that offsets are accurate (1.0 = exact match)
 }
 
 export interface UserText {
