@@ -436,7 +436,11 @@ const DataReviewDashboard: React.FC<DataReviewDashboardProps> = ({
                                         Harvest
                                     </button>
                                     <button
-                                        onClick={() => handleDelete(selectedBranch.branch.id, selectedBranch.treeId)}
+                                        onClick={(e) => {
+                                            e.preventDefault();
+                                            e.stopPropagation();
+                                            handleDelete(selectedBranch.branch.id, selectedBranch.treeId);
+                                        }}
                                         className="px-3 py-1.5 rounded-lg bg-red-600/20 hover:bg-red-600/30 text-red-400 text-sm flex items-center gap-1"
                                     >
                                         <Trash2 className="w-4 h-4" />
