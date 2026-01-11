@@ -18,6 +18,36 @@ import {
 } from 'firebase/firestore';
 
 // ========================================
+// HELPER: Remove undefined values (Firestore rejects them)
+// ========================================
+
+function sanitizeForFirestore(obj: any): any {
+    if (obj === null || obj === undefined) {
+        return null;
+    }
+
+    if (Array.isArray(obj)) {
+        return obj.map(item => sanitizeForFirestore(item)).filter(item => item !== undefined);
+    }
+
+    if (obj instanceof Timestamp) {
+        return obj; // Keep Firestore Timestamps as-is
+    }
+
+    if (typeof obj === 'object') {
+        const cleaned: Record<string, any> = {};
+        for (const [key, value] of Object.entries(obj)) {
+            if (value !== undefined) {
+                cleaned[key] = sanitizeForFirestore(value);
+            }
+        }
+        return cleaned;
+    }
+
+    return obj;
+}
+
+// ========================================
 // TYPES
 // ========================================
 
@@ -193,8 +223,10 @@ class SyncManagerClass {
         const name = operationName || `Update ${collection}/${docId.slice(0, 8)}`;
         this.enqueue(name, async () => {
             const docRef = doc(db, collection, docId);
+            // Sanitize data to remove undefined values (Firestore rejects them)
+            const sanitizedData = sanitizeForFirestore(data);
             await updateDoc(docRef, {
-                ...data,
+                ...sanitizedData,
                 updatedAt: Timestamp.now()
             });
         });
@@ -221,8 +253,10 @@ class SyncManagerClass {
         const name = operationName || `Set ${collection}/${docId.slice(0, 8)}`;
         this.enqueue(name, async () => {
             const docRef = doc(db, collection, docId);
+            // Sanitize data to remove undefined values (Firestore rejects them)
+            const sanitizedData = sanitizeForFirestore(data);
             await setDoc(docRef, {
-                ...data,
+                ...sanitizedData,
                 createdAt: Timestamp.now(),
                 updatedAt: Timestamp.now()
             });
