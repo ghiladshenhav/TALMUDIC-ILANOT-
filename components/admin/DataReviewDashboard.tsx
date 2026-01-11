@@ -160,25 +160,33 @@ const DataReviewDashboard: React.FC<DataReviewDashboardProps> = ({
     // ========================================
 
     const handleDelete = async (branchId: string, treeId: string) => {
+        console.log('[DataJanitor] Delete requested:', { branchId, treeId });
         if (!confirm('Delete this branch?')) return;
 
         try {
             // Fetch the ACTUAL tree from Firestore (not the filtered local state)
+            console.log('[DataJanitor] Fetching tree from Firestore...');
             const treeRef = doc(db, 'receptionTrees', treeId);
             const treeSnap = await getDoc(treeRef);
 
             if (!treeSnap.exists()) {
+                console.error('[DataJanitor] Tree not found:', treeId);
                 showToast('Tree not found', 'error');
                 return;
             }
 
             const treeData = treeSnap.data() as ReceptionTree;
             const allBranches = treeData.branches || [];
+            console.log(`[DataJanitor] Tree has ${allBranches.length} branches, removing ${branchId}`);
+
             const updatedBranches = allBranches.filter(b => b.id !== branchId);
+            console.log(`[DataJanitor] After filter: ${updatedBranches.length} branches remain`);
 
             if (updatedBranches.length === 0) {
+                console.log('[DataJanitor] No branches left, deleting tree');
                 syncManager.deleteDocument('receptionTrees', treeId, 'Delete empty tree');
             } else {
+                console.log('[DataJanitor] Updating tree with reduced branches');
                 syncManager.updateDocument('receptionTrees', treeId, {
                     branches: updatedBranches
                 }, `Delete branch ${branchId.slice(0, 8)}`);
@@ -202,6 +210,7 @@ const DataReviewDashboard: React.FC<DataReviewDashboardProps> = ({
             }
 
             showToast('Branch deleted', 'success');
+            console.log('[DataJanitor] Delete completed successfully');
         } catch (error: any) {
             console.error('[DataJanitor] Delete error:', error);
             showToast('Failed to delete branch', 'error');
