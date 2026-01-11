@@ -17,7 +17,6 @@ import { db } from '../../firebase';
 import {
     collection,
     query,
-    orderBy,
     limit,
     startAfter,
     getDocs,
@@ -94,13 +93,16 @@ const DataReviewDashboard: React.FC<DataReviewDashboardProps> = ({
 
     const loadTrees = async (afterDoc: QueryDocumentSnapshot<DocumentData> | null = null) => {
         setIsLoading(true);
+        console.log('[DataJanitor] Loading trees...');
         try {
             const treesRef = collection(db, 'receptionTrees');
+            // Don't use orderBy - many trees may lack createdAt field
             let q = afterDoc
-                ? query(treesRef, orderBy('createdAt', 'desc'), startAfter(afterDoc), limit(15))
-                : query(treesRef, orderBy('createdAt', 'desc'), limit(15));
+                ? query(treesRef, startAfter(afterDoc), limit(15))
+                : query(treesRef, limit(15));
 
             const snap = await getDocs(q);
+            console.log(`[DataJanitor] Fetched ${snap.docs.length} trees from Firestore`);
             const newTrees = snap.docs.map(d => ({ id: d.id, ...d.data() } as ReceptionTree));
 
             if (afterDoc) {
