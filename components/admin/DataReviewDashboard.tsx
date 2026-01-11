@@ -73,6 +73,7 @@ const DataReviewDashboard: React.FC<DataReviewDashboardProps> = ({
     // Modal state
     const [editingBranch, setEditingBranch] = useState<{ branch: BranchNode; treeId: string } | null>(null);
     const [harvestingBranch, setHarvestingBranch] = useState<{ branch: BranchNode; treeId: string; rootSource: string } | null>(null);
+    const [confirmingDelete, setConfirmingDelete] = useState<{ branchId: string; treeId: string } | null>(null);
 
     // Toast
     const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
@@ -161,7 +162,15 @@ const DataReviewDashboard: React.FC<DataReviewDashboardProps> = ({
 
     const handleDelete = async (branchId: string, treeId: string) => {
         console.log('[DataJanitor] Delete requested:', { branchId, treeId });
-        if (!confirm('Delete this branch?')) return;
+        // Just set confirmingDelete state - actual delete in executeDelete
+        setConfirmingDelete({ branchId, treeId });
+    };
+
+    const executeDelete = async () => {
+        if (!confirmingDelete) return;
+        const { branchId, treeId } = confirmingDelete;
+        setConfirmingDelete(null);
+        console.log('[DataJanitor] Executing delete:', { branchId, treeId });
 
         try {
             // Fetch the ACTUAL tree from Firestore (not the filtered local state)
@@ -528,6 +537,32 @@ const DataReviewDashboard: React.FC<DataReviewDashboardProps> = ({
                     rootSource={harvestingBranch.rootSource}
                     onHarvest={handleHarvest}
                 />
+            )}
+
+            {/* Delete Confirmation Modal */}
+            {confirmingDelete && (
+                <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
+                    <div className="bg-gray-900 border border-gray-700 rounded-xl p-6 max-w-sm w-full mx-4">
+                        <h3 className="text-lg font-bold text-white mb-2">Delete Branch?</h3>
+                        <p className="text-gray-400 text-sm mb-6">
+                            This action cannot be undone. The branch will be permanently removed.
+                        </p>
+                        <div className="flex gap-3 justify-end">
+                            <button
+                                onClick={() => setConfirmingDelete(null)}
+                                className="px-4 py-2 rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-300 font-medium"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                onClick={executeDelete}
+                                className="px-4 py-2 rounded-lg bg-red-600 hover:bg-red-500 text-white font-medium"
+                            >
+                                Delete
+                            </button>
+                        </div>
+                    </div>
+                </div>
             )}
 
             {/* Toast */}
