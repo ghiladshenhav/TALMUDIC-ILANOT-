@@ -42,6 +42,189 @@ async function generateEmbedding(text: string): Promise<number[]> {
     return result.embeddings?.[0]?.values || [];
 }
 
+// ========================================
+// BATCH OPERATIONS (Cost Optimization)
+// ========================================
+
+/**
+ * Batch embedding generation for multiple texts.
+ * Processes texts in parallel batches to maximize throughput while respecting rate limits.
+ * 
+ * @param texts - Array of text strings to embed
+ * @param batchSize - Number of parallel requests (default: 5 to respect rate limits)
+ * @param onProgress - Optional callback for progress updates
+ * @returns Array of embeddings in same order as input texts
+ */
+export async function embedTextsBatch(
+    texts: string[],
+    batchSize: number = 5,
+    onProgress?: (completed: number, total: number) => void
+): Promise<number[][]> {
+    console.log(`[Batch Embed] Starting batch embedding for ${texts.length} texts (batch size: ${batchSize})`);
+
+    const embeddings: number[][] = new Array(texts.length);
+    let completed = 0;
+
+    // Process in parallel batches
+    for (let i = 0; i < texts.length; i += batchSize) {
+        const batchTexts = texts.slice(i, i + batchSize);
+        const batchIndices = batchTexts.map((_, idx) => i + idx);
+
+        // Run batch in parallel
+        const batchResults = await Promise.all(
+            batchTexts.map(async (text, idx) => {
+                try {
+                    const embedding = await generateEmbedding(text);
+                    return { index: batchIndices[idx], embedding, success: true };
+                } catch (error) {
+                    console.error(`[Batch Embed] Failed for index ${batchIndices[idx]}:`, error);
+                    return { index: batchIndices[idx], embedding: [], success: false };
+                }
+            })
+        );
+
+        // Store results in correct positions
+        for (const result of batchResults) {
+            embeddings[result.index] = result.embedding;
+            completed++;
+        }
+
+        if (onProgress) {
+            onProgress(completed, texts.length);
+        }
+
+        console.log(`[Batch Embed] Progress: ${completed}/${texts.length}`);
+
+        // Small delay between batches to avoid rate limiting
+        if (i + batchSize < texts.length) {
+            await new Promise(resolve => setTimeout(resolve, 200));
+        }
+    }
+
+    const successCount = embeddings.filter(e => e && e.length > 0).length;
+    console.log(`[Batch Embed] Completed: ${successCount}/${texts.length} successful`);
+
+    return embeddings;
+}
+
+/**
+ * Metadata structure for Ground Truth batch upsert
+ */
+export interface GroundTruthBatchItem {
+    id: string;
+    phrase: string;
+    snippet: string;
+    userId: string;
+    action: string;
+    correctSource: string;
+    originalSource?: string;
+    correctionReason?: string;
+    confidenceLevel?: string;
+    category?: string;
+}
+
+/**
+ * Batch upsert Ground Truth vectors to Pinecone.
+ * Sends vectors in batches of 50-100 to prevent HTTP timeouts.
+ * 
+ * @param items - Array of GT items with their embeddings
+ * @param embeddings - Corresponding embeddings (same order as items)
+ * @param batchSize - Pinecone batch size (default: 50, max recommended: 100)
+ * @param onProgress - Optional progress callback
+ * @returns Object with success and error counts
+ */
+export async function upsertGroundTruthBatch(
+    items: GroundTruthBatchItem[],
+    embeddings: number[][],
+    batchSize: number = 50,
+    onProgress?: (completed: number, total: number) => void
+): Promise<{ successCount: number; errorCount: number }> {
+    console.log(`[Batch Upsert] Starting batch upsert for ${items.length} vectors (batch size: ${batchSize})`);
+
+    const apiKey = import.meta.env.VITE_PINECONE_API_KEY;
+    if (!apiKey) {
+        console.error('[Batch Upsert] Pinecone API key not configured');
+        return { successCount: 0, errorCount: items.length };
+    }
+
+    // Get the index host (cached)
+    if (!cachedIndexHost) {
+        cachedIndexHost = await getPineconeIndexHost();
+    }
+
+    let successCount = 0;
+    let errorCount = 0;
+    let completed = 0;
+
+    // Process in batches
+    for (let i = 0; i < items.length; i += batchSize) {
+        const batchItems = items.slice(i, i + batchSize);
+        const batchEmbeddings = embeddings.slice(i, i + batchSize);
+
+        // Build vectors array for this batch
+        const vectors = batchItems.map((item, idx) => ({
+            id: item.id,
+            values: batchEmbeddings[idx],
+            metadata: {
+                phrase: (item.phrase || '').substring(0, 500),
+                snippet: (item.snippet || '').substring(0, 1000),
+                userId: item.userId,
+                action: item.action,
+                correctSource: item.correctSource || '',
+                originalSource: item.originalSource || '',
+                correctionReason: (item.correctionReason || '').substring(0, 500),
+                confidenceLevel: item.confidenceLevel || 'medium',
+                category: item.category || ''
+            }
+        })).filter(v => v.values && v.values.length > 0); // Skip items with empty embeddings
+
+        if (vectors.length === 0) {
+            completed += batchItems.length;
+            errorCount += batchItems.length;
+            continue;
+        }
+
+        try {
+            const upsertResponse = await fetch(`https://${cachedIndexHost}/vectors/upsert`, {
+                method: 'POST',
+                headers: {
+                    'Api-Key': apiKey,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    namespace: 'ground-truth',
+                    vectors
+                })
+            });
+
+            if (upsertResponse.ok) {
+                successCount += vectors.length;
+                console.log(`[Batch Upsert] Batch ${Math.floor(i / batchSize) + 1}: ${vectors.length} vectors upserted`);
+            } else {
+                const errorText = await upsertResponse.text();
+                console.error(`[Batch Upsert] Batch failed: ${upsertResponse.status} - ${errorText}`);
+                errorCount += vectors.length;
+            }
+        } catch (error) {
+            console.error(`[Batch Upsert] Batch ${Math.floor(i / batchSize) + 1} failed:`, error);
+            errorCount += vectors.length;
+        }
+
+        completed += batchItems.length;
+        if (onProgress) {
+            onProgress(completed, items.length);
+        }
+
+        // Small delay between batches to avoid overwhelming Pinecone
+        if (i + batchSize < items.length) {
+            await new Promise(resolve => setTimeout(resolve, 100));
+        }
+    }
+
+    console.log(`[Batch Upsert] Completed: ${successCount} success, ${errorCount} errors`);
+    return { successCount, errorCount };
+}
+
 /**
  * Get the Pinecone index host URL
  * Pinecone index URLs are in format: https://{index-name}-{project-id}.svc.{environment}.pinecone.io

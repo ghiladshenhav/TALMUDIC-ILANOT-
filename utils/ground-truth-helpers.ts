@@ -1,7 +1,7 @@
 import { db } from '../firebase';
-import { collection, addDoc, getDocs, query, where, orderBy, limit, Timestamp, updateDoc, doc } from 'firebase/firestore';
+import { collection, addDoc, getDocs, query, where, orderBy, limit, Timestamp, updateDoc, doc, writeBatch } from 'firebase/firestore';
 import { GroundTruthExample, GroundTruthAction, GroundTruthCategory } from '../types';
-import { upsertGroundTruthToPinecone } from './rag-search';
+import { upsertGroundTruthToPinecone, embedTextsBatch, upsertGroundTruthBatch, GroundTruthBatchItem } from './rag-search';
 
 /**
  * Save a new ground truth example to Firestore AND index to Pinecone for semantic retrieval.
@@ -181,4 +181,282 @@ export function formatGroundTruthForPrompt(examples: {
     }
 
     return promptAddition;
+}
+
+// ========================================
+// BATCH IMPORT/EXPORT (Phase 2: Cost Reduction)
+// ========================================
+
+/**
+ * Progress callback type for batch operations
+ */
+export interface BatchImportProgress {
+    stage: 'validating' | 'firestore' | 'embedding' | 'pinecone' | 'complete';
+    current: number;
+    total: number;
+    message: string;
+}
+
+/**
+ * Result of batch import operation
+ */
+export interface BatchImportResult {
+    success: boolean;
+    firestoreCount: number;
+    pineconeSuccess: number;
+    pineconeErrors: number;
+    skippedItems: number;
+    errors: string[];
+    totalTime: number;
+}
+
+/**
+ * Validates a Ground Truth JSON item
+ */
+function validateGTItem(item: any, index: number): { valid: boolean; error?: string } {
+    if (!item.phrase || typeof item.phrase !== 'string') {
+        return { valid: false, error: `Item ${index}: missing or invalid 'phrase'` };
+    }
+    if (!item.action || !['APPROVE', 'REJECT', 'CORRECT'].includes(item.action.toUpperCase())) {
+        return { valid: false, error: `Item ${index}: invalid 'action' (must be APPROVE, REJECT, or CORRECT)` };
+    }
+    if (!item.correctSource && item.action.toUpperCase() !== 'REJECT') {
+        return { valid: false, error: `Item ${index}: 'correctSource' required for APPROVE/CORRECT actions` };
+    }
+    return { valid: true };
+}
+
+/**
+ * Import Ground Truth examples from JSON data.
+ * 
+ * Uses batch operations for efficiency:
+ * 1. Firestore writeBatch (500 docs max per batch)
+ * 2. Parallel embedding generation (5 concurrent)
+ * 3. Pinecone batch upsert (50 vectors per batch)
+ * 
+ * @param jsonData - Array of GT items to import
+ * @param userId - User ID to associate with all items
+ * @param onProgress - Optional progress callback
+ * @returns Import result with success/error counts
+ */
+export async function importGroundTruthFromJson(
+    jsonData: any[],
+    userId: string,
+    onProgress?: (progress: BatchImportProgress) => void
+): Promise<BatchImportResult> {
+    const startTime = Date.now();
+    const result: BatchImportResult = {
+        success: false,
+        firestoreCount: 0,
+        pineconeSuccess: 0,
+        pineconeErrors: 0,
+        skippedItems: 0,
+        errors: [],
+        totalTime: 0
+    };
+
+    console.log(`[GT Batch Import] Starting import of ${jsonData.length} items for user ${userId}`);
+
+    // ========================================
+    // STEP 1: Validate JSON structure
+    // ========================================
+    onProgress?.({ stage: 'validating', current: 0, total: jsonData.length, message: 'Validating JSON structure...' });
+
+    const validItems: any[] = [];
+    for (let i = 0; i < jsonData.length; i++) {
+        const validation = validateGTItem(jsonData[i], i);
+        if (validation.valid) {
+            validItems.push(jsonData[i]);
+        } else {
+            result.errors.push(validation.error!);
+            result.skippedItems++;
+        }
+    }
+
+    console.log(`[GT Batch Import] Validation: ${validItems.length} valid, ${result.skippedItems} skipped`);
+    onProgress?.({ stage: 'validating', current: jsonData.length, total: jsonData.length, message: `${validItems.length} items validated` });
+
+    if (validItems.length === 0) {
+        result.errors.push('No valid items to import');
+        result.totalTime = Date.now() - startTime;
+        return result;
+    }
+
+    // ========================================
+    // STEP 2: Save to Firestore (batch writes)
+    // ========================================
+    onProgress?.({ stage: 'firestore', current: 0, total: validItems.length, message: 'Saving to Firestore...' });
+
+    const FIRESTORE_BATCH_SIZE = 450; // Firestore limit is 500, leave buffer
+    const firestoreDocIds: string[] = [];
+
+    for (let i = 0; i < validItems.length; i += FIRESTORE_BATCH_SIZE) {
+        const batchItems = validItems.slice(i, i + FIRESTORE_BATCH_SIZE);
+        const batch = writeBatch(db);
+
+        for (const item of batchItems) {
+            const docRef = doc(collection(db, 'ground_truth_examples'));
+            const normalizedAction = item.action.toUpperCase() as GroundTruthAction;
+
+            const docData: Record<string, any> = {
+                userId,
+                createdAt: Timestamp.now(),
+                phrase: item.phrase,
+                snippet: item.snippet || item.phrase,
+                action: normalizedAction,
+                correctSource: item.correctSource || (normalizedAction === 'REJECT' ? 'N/A' : ''),
+                confidenceLevel: item.confidenceLevel || 'high', // Imported data is assumed high confidence
+                isGroundTruth: true,
+                usageCount: 0,
+                importedAt: Timestamp.now()
+            };
+
+            // Optional fields
+            if (item.originalSource) docData.originalSource = item.originalSource;
+            if (item.correctionReason) docData.correctionReason = item.correctionReason;
+            if (item.category) docData.category = item.category;
+            if (item.justification) docData.justification = item.justification;
+
+            batch.set(docRef, docData);
+            firestoreDocIds.push(docRef.id);
+        }
+
+        try {
+            await batch.commit();
+            result.firestoreCount += batchItems.length;
+            console.log(`[GT Batch Import] Firestore batch ${Math.floor(i / FIRESTORE_BATCH_SIZE) + 1}: ${batchItems.length} docs saved`);
+        } catch (error) {
+            console.error(`[GT Batch Import] Firestore batch failed:`, error);
+            result.errors.push(`Firestore batch ${Math.floor(i / FIRESTORE_BATCH_SIZE) + 1} failed: ${error}`);
+        }
+
+        onProgress?.({
+            stage: 'firestore',
+            current: Math.min(i + FIRESTORE_BATCH_SIZE, validItems.length),
+            total: validItems.length,
+            message: `Saved ${result.firestoreCount} to Firestore...`
+        });
+    }
+
+    console.log(`[GT Batch Import] Firestore complete: ${result.firestoreCount} documents saved`);
+
+    // ========================================
+    // STEP 3: Generate embeddings (batch)
+    // ========================================
+    onProgress?.({ stage: 'embedding', current: 0, total: validItems.length, message: 'Generating embeddings...' });
+
+    // Build text to embed: phrase + snippet
+    const textsToEmbed = validItems.map(item =>
+        `${item.phrase} ${item.snippet || ''}`.substring(0, 8000)
+    );
+
+    const embeddings = await embedTextsBatch(
+        textsToEmbed,
+        5, // 5 parallel requests
+        (completed, total) => {
+            onProgress?.({
+                stage: 'embedding',
+                current: completed,
+                total,
+                message: `Generating embeddings: ${completed}/${total}`
+            });
+        }
+    );
+
+    const successfulEmbeddings = embeddings.filter(e => e && e.length > 0).length;
+    console.log(`[GT Batch Import] Embeddings complete: ${successfulEmbeddings}/${validItems.length} successful`);
+
+    // ========================================
+    // STEP 4: Upsert to Pinecone (batch)
+    // ========================================
+    onProgress?.({ stage: 'pinecone', current: 0, total: validItems.length, message: 'Indexing to Pinecone...' });
+
+    // Build batch items for Pinecone
+    const batchItems: GroundTruthBatchItem[] = validItems.map((item, idx) => ({
+        id: firestoreDocIds[idx] || `imported-${Date.now()}-${idx}`,
+        phrase: item.phrase,
+        snippet: item.snippet || item.phrase,
+        userId,
+        action: item.action.toUpperCase(),
+        correctSource: item.correctSource || '',
+        originalSource: item.originalSource,
+        correctionReason: item.correctionReason,
+        confidenceLevel: item.confidenceLevel || 'high',
+        category: item.category
+    }));
+
+    const pineconeResult = await upsertGroundTruthBatch(
+        batchItems,
+        embeddings,
+        50, // 50 vectors per Pinecone batch
+        (completed, total) => {
+            onProgress?.({
+                stage: 'pinecone',
+                current: completed,
+                total,
+                message: `Indexing to Pinecone: ${completed}/${total}`
+            });
+        }
+    );
+
+    result.pineconeSuccess = pineconeResult.successCount;
+    result.pineconeErrors = pineconeResult.errorCount;
+
+    // ========================================
+    // COMPLETE
+    // ========================================
+    result.success = result.firestoreCount > 0;
+    result.totalTime = Date.now() - startTime;
+
+    console.log(`[GT Batch Import] COMPLETE in ${result.totalTime}ms:`, {
+        firestore: result.firestoreCount,
+        pinecone: `${result.pineconeSuccess} success, ${result.pineconeErrors} errors`,
+        skipped: result.skippedItems
+    });
+
+    onProgress?.({
+        stage: 'complete',
+        current: validItems.length,
+        total: validItems.length,
+        message: `Import complete: ${result.firestoreCount} saved, ${result.pineconeSuccess} indexed`
+    });
+
+    return result;
+}
+
+/**
+ * Export all Ground Truth examples for a user to JSON
+ */
+export async function exportGroundTruthToJson(userId: string): Promise<GroundTruthExample[]> {
+    console.log(`[GT Export] Exporting all GT examples for user ${userId}`);
+
+    const q = query(
+        collection(db, 'ground_truth_examples'),
+        where('userId', '==', userId),
+        orderBy('createdAt', 'desc'),
+        limit(1000) // Reasonable limit
+    );
+
+    const snapshot = await getDocs(q);
+    const examples: GroundTruthExample[] = snapshot.docs.map(doc => {
+        const data = doc.data();
+        return {
+            id: doc.id,
+            phrase: data.phrase,
+            snippet: data.snippet,
+            action: data.action,
+            correctSource: data.correctSource,
+            originalSource: data.originalSource,
+            correctionReason: data.correctionReason,
+            confidenceLevel: data.confidenceLevel,
+            category: data.category,
+            justification: data.justification,
+            isGroundTruth: data.isGroundTruth,
+            createdAt: data.createdAt,
+            userId: data.userId
+        } as GroundTruthExample;
+    });
+
+    console.log(`[GT Export] Exported ${examples.length} examples`);
+    return examples;
 }

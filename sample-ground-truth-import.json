@@ -1,0 +1,38 @@
+[
+    {
+        "phrase": "כל מאן דאמר רחמנא פטריה",
+        "snippet": "כל מאן דאמר רחמנא פטריה ואתי איהו ומזיק נפשיה",
+        "action": "APPROVE",
+        "correctSource": "Bavli Yoma 85b",
+        "confidenceLevel": "high",
+        "category": "halakha",
+        "justification": "Classic Talmudic phrase about Torah exemptions"
+    },
+    {
+        "phrase": "מאי דכתיב",
+        "snippet": "מאי דכתיב ואהבת לרעך כמוך",
+        "action": "APPROVE",
+        "correctSource": "Bavli Shabbat 31a",
+        "confidenceLevel": "high"
+    },
+    {
+        "phrase": "אמר רב",
+        "snippet": "אמר רב אין הלכה כרבי יוחנן",
+        "action": "REJECT",
+        "correctionReason": "Too generic - 'Amar Rav' appears thousands of times",
+        "confidenceLevel": "high"
+    },
+    {
+        "phrase": "עין תחת עין",
+        "snippet": "עין תחת עין שן תחת שן",
+        "action": "APPROVE",
+        "correctSource": "Bavli Bava Kamma 83b",
+        "confidenceLevel": "high",
+        "justification": "Famous principle of monetary compensation for injury"
+    },
+    {
+        "phrase": "גמרא",
+        "action": "REJECT",
+        "correctionReason": "Single word 'Gemara' without context is not a valid reference"
+    }
+]

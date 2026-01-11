@@ -19,9 +19,10 @@ interface DashboardProps {
     onAuthorClick?: (author: AuthorEntry) => void;
     onTractateClick?: (tractate: string) => void;
     tractateProfiles?: Record<string, TractateProfile>;
+    userId?: string; // Required for Ground Truth import/export
 }
 
-const Dashboard: React.FC<DashboardProps> = ({ receptionForest, onNavigate, onAddPassage, onOpenMergeModal, onStandardizeTitles, onDiagnoseOrphans, onDeleteTree, onImportFromBenYehuda, onScanPdf, onAuthorClick, onTractateClick, tractateProfiles }) => {
+const Dashboard: React.FC<DashboardProps> = ({ receptionForest, onNavigate, onAddPassage, onOpenMergeModal, onStandardizeTitles, onDiagnoseOrphans, onDeleteTree, onImportFromBenYehuda, onScanPdf, onAuthorClick, onTractateClick, tractateProfiles, userId }) => {
     const [viewMode, setViewMode] = useState<'page' | 'author' | 'tractate'>('page');
     const [sortBy, setSortBy] = useState<'recent' | 'branches' | 'alphabetical'>('recent');
     const [isSortMenuOpen, setIsSortMenuOpen] = useState(false);
@@ -597,6 +598,7 @@ const Dashboard: React.FC<DashboardProps> = ({ receptionForest, onNavigate, onAd
             <GroundTruthViewer
                 isOpen={isGroundTruthOpen}
                 onClose={() => setIsGroundTruthOpen(false)}
+                userId={userId}
             />
         </div >
     );

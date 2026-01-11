@@ -1,4 +1,5 @@
 import React from 'react';
+import SyncIndicator from './SyncIndicator';
 
 interface SidebarProps {
     currentView: 'dashboard' | 'split-pane' | 'analyzer' | 'assistant' | 'library' | 'connections';
@@ -77,6 +78,9 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, onViewChange, onOpenSett
             </nav>
 
             <div className={bottomContainerClasses}>
+                {/* Sync Status Indicator */}
+                <SyncIndicator showLabel={!isHorizontal} size={isHorizontal ? 'sm' : 'md'} />
+
                 <button
                     onClick={onOpenSettings}
                     className={`flex items-center gap-3 px-3 py-2 rounded-xl text-sm font-medium text-[#f5f0e1]/40 hover:text-[#f5f0e1] hover:bg-[#1a4d2e]/30 transition-colors ${isHorizontal ? '' : 'w-full'}`}

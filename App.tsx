@@ -2235,6 +2235,7 @@ Output JSON ONLY.`;
                                 onAuthorClick={(author) => setSelectedAuthor(author)}
                                 onTractateClick={(tractate) => setSelectedTractate(tractate)}
                                 tractateProfiles={tractateProfiles}
+                                userId="default-user" // Single-user mode - for multi-user, use Firebase Auth
                             />
                         )}
                     </>

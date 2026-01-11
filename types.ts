@@ -61,6 +61,9 @@ export interface BranchNode extends BaseGraphNode {
     category?: BranchCategory;
     keywords?: string[]; // AI-generated and user-editable thematic tags (e.g., ["משיח", "Messiah", "redemption"])
     sourceDocumentId?: string; // Links to the UserText.id this branch was discovered from
+    // Ground Truth harvesting
+    isHarvested?: boolean; // True if this branch has been harvested as Ground Truth
+    harvestedAt?: any; // Timestamp when harvested
 }
 
 /**

@@ -11,6 +11,7 @@ import { AnalysisProvider, isDictaAvailable, analyzeTextWithDicta } from './dict
 import { checkCache, cacheResponse } from './query-cache';
 import { detectReferences, detectionResultToFindings } from './citation-detector';
 import { prefilterWithGroundTruth, isPrefilterAvailable } from './gt-prefilter';
+import { logApiUsage } from './cost-tracker';
 
 enum SchemaType {
     STRING = "STRING",
@@ -670,6 +671,8 @@ export const analyzeFullText = async (
             // Skip LLM if GT says we should
             if (gtPrefilter.shouldSkipLLM) {
                 console.log(`[GT Pre-filter] ⏭️ Skipping LLM for chunk ${i + 1}: ${gtPrefilter.reason}`);
+                // Log as GT skip for cost tracking
+                logApiUsage('gt_skipped', 'gemini-2.5-flash', 0, 0, true);
                 processedChars += chunk.length;
                 if (progressCallback) progressCallback(processedChars, fullText.length);
                 continue; // SKIP EXPENSIVE LLM CALL
@@ -771,6 +774,8 @@ const processAnalyzeChunk = async (textSegment: string, userId?: string, provide
         const cachedResponse = await checkCache(textSegment);
         if (cachedResponse) {
             console.log('[Cache] Using cached response - skipping LLM call');
+            // Log as cache hit for cost tracking
+            logApiUsage('cache_hit', 'gemini-2.5-flash', 0, 0, true);
             try {
                 const parsed = JSON.parse(cachedResponse);
                 return (parsed.foundReferences || []).map((ref: any) => ({
@@ -831,6 +836,12 @@ const processAnalyzeChunk = async (textSegment: string, userId?: string, provide
                     }
                 }
             });
+
+            // Log LLM usage for cost tracking
+            const usageMetadata = response.usageMetadata || response.response?.usageMetadata;
+            const inputTokens = usageMetadata?.promptTokenCount || Math.ceil(chunkContent.length / 4);
+            const outputTokens = usageMetadata?.candidatesTokenCount || 500;
+            logApiUsage('standard', model, inputTokens, outputTokens, false);
         }
 
         if (response.candidates?.[0]?.finishReason === 'MAX_TOKENS') {
