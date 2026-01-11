@@ -17,8 +17,6 @@ import { db } from '../../firebase';
 import {
     collection,
     query,
-    limit,
-    startAfter,
     getDocs,
     doc,
     getDoc,
@@ -93,26 +91,28 @@ const DataReviewDashboard: React.FC<DataReviewDashboardProps> = ({
 
     const loadTrees = async (afterDoc: QueryDocumentSnapshot<DocumentData> | null = null) => {
         setIsLoading(true);
-        console.log('[DataJanitor] Loading trees...');
+        console.log('[DataJanitor] Loading ALL trees with un-harvested branches...');
         try {
             const treesRef = collection(db, 'receptionTrees');
-            // Don't use orderBy - many trees may lack createdAt field
-            let q = afterDoc
-                ? query(treesRef, startAfter(afterDoc), limit(15))
-                : query(treesRef, limit(15));
+            // Load ALL trees (no limit) - filter client-side for un-harvested branches
+            const q = query(treesRef);
 
             const snap = await getDocs(q);
-            console.log(`[DataJanitor] Fetched ${snap.docs.length} trees from Firestore`);
-            const newTrees = snap.docs.map(d => ({ id: d.id, ...d.data() } as ReceptionTree));
+            console.log(`[DataJanitor] Fetched ${snap.docs.length} total trees from Firestore`);
 
-            if (afterDoc) {
-                setTrees(prev => [...prev, ...newTrees]);
-            } else {
-                setTrees(newTrees);
-            }
+            // Filter to only include trees with un-harvested branches
+            const allTrees = snap.docs.map(d => ({ id: d.id, ...d.data() } as ReceptionTree));
+            const treesWithUnharvested = allTrees
+                .map(tree => ({
+                    ...tree,
+                    // Filter branches to only un-harvested ones
+                    branches: (tree.branches || []).filter(b => !b.isHarvested)
+                }))
+                .filter(tree => tree.branches.length > 0); // Only keep trees with at least 1 un-harvested branch
 
-            setLastDoc(snap.docs[snap.docs.length - 1] || null);
-            setHasMore(snap.docs.length === 15);
+            console.log(`[DataJanitor] ${treesWithUnharvested.length} trees with ${treesWithUnharvested.reduce((sum, t) => sum + t.branches.length, 0)} un-harvested branches`);
+            setTrees(treesWithUnharvested);
+            setHasMore(false); // No pagination needed
         } catch (error) {
             console.error('[Dashboard] Load error:', error);
             showToast('Failed to load trees', 'error');
