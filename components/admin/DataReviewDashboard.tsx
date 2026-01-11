@@ -162,27 +162,50 @@ const DataReviewDashboard: React.FC<DataReviewDashboardProps> = ({
     const handleDelete = async (branchId: string, treeId: string) => {
         if (!confirm('Delete this branch?')) return;
 
-        const tree = trees.find(t => t.id === treeId);
-        if (!tree) return;
+        try {
+            // Fetch the ACTUAL tree from Firestore (not the filtered local state)
+            const treeRef = doc(db, 'receptionTrees', treeId);
+            const treeSnap = await getDoc(treeRef);
 
-        const updatedBranches = (tree.branches || []).filter(b => b.id !== branchId);
+            if (!treeSnap.exists()) {
+                showToast('Tree not found', 'error');
+                return;
+            }
 
-        if (updatedBranches.length === 0) {
-            syncManager.deleteDocument('receptionTrees', treeId, 'Delete empty tree');
-            setTrees(prev => prev.filter(t => t.id !== treeId));
-        } else {
-            syncManager.updateDocument('receptionTrees', treeId, {
-                branches: updatedBranches
-            }, 'Delete branch');
-            setTrees(prev => prev.map(t =>
-                t.id === treeId ? { ...t, branches: updatedBranches } : t
-            ));
+            const treeData = treeSnap.data() as ReceptionTree;
+            const allBranches = treeData.branches || [];
+            const updatedBranches = allBranches.filter(b => b.id !== branchId);
+
+            if (updatedBranches.length === 0) {
+                syncManager.deleteDocument('receptionTrees', treeId, 'Delete empty tree');
+            } else {
+                syncManager.updateDocument('receptionTrees', treeId, {
+                    branches: updatedBranches
+                }, `Delete branch ${branchId.slice(0, 8)}`);
+            }
+
+            // Update local state - remove the branch from the filtered view
+            setTrees(prev => {
+                const updated = prev.map(t => {
+                    if (t.id !== treeId) return t;
+                    return {
+                        ...t,
+                        branches: t.branches.filter(b => b.id !== branchId)
+                    };
+                });
+                // Remove trees with no visible branches
+                return updated.filter(t => t.branches.length > 0);
+            });
+
+            if (selectedBranch?.branch.id === branchId) {
+                setSelectedBranch(null);
+            }
+
+            showToast('Branch deleted', 'success');
+        } catch (error: any) {
+            console.error('[DataJanitor] Delete error:', error);
+            showToast('Failed to delete branch', 'error');
         }
-
-        if (selectedBranch?.branch.id === branchId) {
-            setSelectedBranch(null);
-        }
-        showToast('Branch deleted', 'success');
     };
 
     const handleHarvest = async (metadata: HarvestMetadata) => {
