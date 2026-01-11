@@ -79,7 +79,7 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, onViewChange, onOpenSett
 
             <div className={bottomContainerClasses}>
                 {/* Sync Status Indicator */}
-                <SyncIndicator showLabel={!isHorizontal} size={isHorizontal ? 'sm' : 'md'} />
+                <SyncIndicator showLabel={!isHorizontal} />
 
                 <button
                     onClick={onOpenSettings}
